@@ -1,33 +1,75 @@
 from pathlib import Path
 import struct
 from .win32 import Win32Data
+import json
+import pandas as pd
 
 class t3wData():
-    def __init__(self, file_path):
+    def __init__(self, file_path, calib_coeff=2.048 / 2 ** 23):
         
         self.file_path = Path(file_path).resolve()
+        self.calib_coeff = calib_coeff
         
         # Read the t3w file
         self._read_t3w_file()
+    
+    def export_header(self, dir_path=None):
+        t3w_header = self.t3w_header
+        
+        if not dir_path:
+            dir_path = self.file_path.parent
+        
+        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + "_header.json")
+        
+        with open(temp_file_path, "w") as f:
+            json.dump(t3w_header, f, indent=4)
+        
+        return temp_file_path
+    
+    def export_data_csv(self, dir_path=None, time_format="relative"):
+        
+        if not dir_path:
+            dir_path = self.file_path.parent
+        
+        temp_data = pd.DataFrame(self.t3w_win32_data.get_data_float())
+        temp_data.columns = [0, 1, 2]
+        temp_data["relative_time"] = temp_data.index * self.t3w_header["sampling_time_interval"] / 1000
+        temp_data["absolute_time"] = pd.to_datetime(self.t3w_header["start_datetime_this_file"], format="%Y%m%d%H%M%S%f") \
+            + pd.to_timedelta(temp_data["relative_time"], unit="s")
+            
+        # change order of columns
+        if time_format == "relative":
+            temp_data = temp_data[["relative_time", 0, 1, 2]]
+        elif time_format == "absolute":
+            temp_data = temp_data[["absolute_time", 0, 1, 2]]
+        elif time_format == "both":
+            temp_data = temp_data[["absolute_time", "relative_time", 0, 1, 2]]
+        
+        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + "_data.csv")
+        temp_data.to_csv(temp_file_path, index=False)
+        
+        return temp_file_path
         
     def _read_t3w_file(self):
         
         with open(self.file_path, "rb") as f:
             temp_t3w_bin_data = f.read()
             
-            temp_t3w_bin_data_header = temp_t3w_bin_data[:1024]
-            temp_t3w_bin_data_win32 = temp_t3w_bin_data[1024:]
-            
-            # Read the header
-            self.t3w_header = self._read_t3w_header(temp_t3w_bin_data_header)
-            
-            # Read the win32 data
-            self.t3w_win32_data = self._read_win32_data(temp_t3w_bin_data_win32, self.t3w_header)
-
+        temp_t3w_bin_data_header = temp_t3w_bin_data[:1024]
+        temp_t3w_bin_data_win32 = temp_t3w_bin_data[1024:]
+        
+        # Read the header
+        self.t3w_header = self._read_t3w_header(temp_t3w_bin_data_header)
+        
+        # Read the win32 data
+        self.t3w_win32_data = self._read_win32_data(temp_t3w_bin_data_win32, self.t3w_header)
     
     def _read_win32_data(self, t3w_bin_data_win32, t3w_header):
 
-        temp_t3w_win32_data = Win32Data(bin_data=t3w_bin_data_win32, calib_coeff=2.048 / 2 ** 23)
+        temp_t3w_win32_data = Win32Data(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff)
+        temp_t3w_win32_data_header = temp_t3w_win32_data.get_header()
+        
+        print(temp_t3w_win32_data_header)
         
         return temp_t3w_win32_data
         
@@ -56,6 +98,9 @@ class t3wData():
             "north_south_flag": struct.unpack(">c", t3w_bin_data_header[828:829])[0].decode("utf-8"),
             "east_west_flag": struct.unpack(">c", t3w_bin_data_header[829:830])[0].decode("utf-8")
         }
+        
+        temp_t3w_header["latitude"] *= -1 if temp_t3w_header["north_south_flag"] == "S" else 1
+        temp_t3w_header["longitude"] *= -1 if temp_t3w_header["east_west_flag"] == "W" else 1
         
         return temp_t3w_header
         

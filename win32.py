@@ -22,6 +22,24 @@ class Win32Data():
         
         elif bin_data:
             self.header, self.data_int, self.data_float = self.read_bin_data(bin_data)
+    
+    def get_header(self):
+        return self.header
+    
+    def get_data_int(self):
+        return self.data_int
+    
+    def get_data_float(self):
+        return self.data_float
+    
+    def get_data(self, data_type="int"):
+        
+        if data_type == "int":
+            return self.data_int
+        elif data_type == "float":
+            return self.data_float
+        else:
+            raise ValueError("Invalid data type")
         
     
     def set_file_path(self, file_path):
@@ -109,6 +127,7 @@ class Win32Data():
         
         self.header["start_datatime"] = data[0]["start_datetime"]
         self.header["end_datetime"] = data[-1]["start_datetime"]
+        self.header["sampling_rate"] = 1 / (data[0]["frame_length"] / 1000)
         self.header["calib_coeff"] = self.calib_coeff
         self.header["num_channel"] = self.num_channel
         
