@@ -33,8 +33,36 @@ class DataFormatter:
         self._load_files()
         
         self._match_files()
+        
+        # self._check_integrity()
+        ## check the integrity of the data
+        ## sometimes the t3w files are not continuous or overlapped
+        ## while it is not possible to check whether the t3w files are continuous, but it is possible to check whether the t3w files are overlapped
+        ## if the t3w files are overlapped, the data should not be concatenated
+        
+        # self._concatenate_t3w_files()
+        ## this is too much complicated
+        ## 1. validate the unknown overlaps with the end of the previous file and the start of the next file
+        ##    -> done by the _check_integrity()    
+        ## 2. how to store the data (again create new variables?)
+        
+        # self._marge_log_files()
+        ## marge the information of log files to self.t3w_file_list
+        ## especially, latitude, longitude, and elevation
+        ## this variable can be summary of the class
+        ## self._marge_log_files()
+        ##    self._read_t3w_file_csv() : read the csv file including manually added latitude, longitude, and elevation
+        ##                                if the csv file does not exist, create the csv file
+        ##                                if the csv file exists, read the csv file and verify the consistency with the self.t3w_file_list
+        ##    self._add_lat_long_elevation() : add latitude, longitude, and elevation to self.t3w_file_list
+        ##                                if the csv file exists, just check the consistency with the latitude, longitude, and elevation                                  
+        ##    self._write_t3w_file_csv() : write the csv file including manually added latitude, longitude, and elevation
+        
         # self._convert_t3w_to_miniseed()
         # self._create_stationXML()
+        
+        # self.compute_HVSR()
+        ## compute HVSR from the data with use of https://github.com/jpvantassel/hvsrpy
     
 
     def _count_dirs_files(self):
@@ -159,7 +187,6 @@ class DataFormatter:
     
     def _match_files(self):
         
-        
         for i, t3w_files in enumerate(self.t3w_file_list):
             temp_group_number = 0
             
@@ -240,7 +267,7 @@ class DataFormatter:
                         t3w_files.loc[j, "match_log_index"] = k
                         break
             
-        print(self.t3w_file_list)
+        
 
     def _convert_t3w_to_miniseed(self):
 
