@@ -3,6 +3,8 @@ import struct
 from .win32 import Win32Data
 import json
 import pandas as pd
+from obspy import Trace, Stream, UTCDateTime
+import datetime as dt
 
 class t3wData():
     def __init__(self, file_path, calib_coeff=2.048 / 2 ** 23):
@@ -49,6 +51,44 @@ class t3wData():
         temp_data.to_csv(temp_file_path, index=False)
         
         return temp_file_path
+
+    def export_data_mseed(self, dir_path=None):
+        
+        if not dir_path:
+            dir_path = self.file_path.parent
+        
+        temp_stream = Stream()
+        
+        temp_data = self.t3w_win32_data.get_data_float()
+        
+        for i in range(3):
+            temp_trace = Trace(data=temp_data[:, i])
+            temp_trace.stats.sampling_rate = 1000 / self.t3w_header["sampling_time_interval"]
+
+            temp_trace.stats.delta = 1 / temp_trace.stats.sampling_rate
+            temp_trace.stats.calib = self.calib_coeff
+            temp_trace.stats.npts = len(temp_trace.data)
+            temp_trace.stats.network = ""
+            # prepare location string following ISO 6709 standard
+            # sample +27.5916-086.5640CRSWGS_84
+            
+            # temp_location_str = "{:+02.6f}".format(self.t3w_header["latitude"]) + \
+            #                     "{:+03.6f}".format(self.t3w_header["longitude"]) 
+            # temp_trace.stats.location = temp_location_str
+            temp_trace.stats.location = ""
+            temp_trace.stats.station = ""
+            temp_trace.stats.channel = ""
+            temp_start_datetime = dt.datetime.strptime(self.t3w_header["start_datetime_this_file"], 
+                                                       "%Y%m%d%H%M%S%f")
+            temp_start_datetime = temp_start_datetime.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+            temp_trace.stats.starttime = UTCDateTime(temp_start_datetime)
+            
+            temp_stream.append(temp_trace)
+        
+        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + ".mseed")
+        temp_stream.write(temp_file_path, format="MSEED")
+        
+        return temp_file_path
         
     def _read_t3w_file(self):
         
@@ -85,11 +125,11 @@ class t3wData():
             "start_datetime_this_file": str(struct.unpack(">H", t3w_bin_data_header[52:54])[0]).zfill(2) + str(struct.unpack(">H", t3w_bin_data_header[54:56])[0]).zfill(2) \
                                         + str(struct.unpack(">H", t3w_bin_data_header[56:58])[0]).zfill(2) + str(struct.unpack(">H", t3w_bin_data_header[58:60])[0]).zfill(2) \
                                         + str(struct.unpack(">H", t3w_bin_data_header[60:62])[0]).zfill(2) + str(struct.unpack(">H", t3w_bin_data_header[62:64])[0]).zfill(2) \
-                                        + str(struct.unpack(">H", t3w_bin_data_header[64:66])[0]).zfill(2),
+                                        + str(struct.unpack(">H", t3w_bin_data_header[64:66])[0]).zfill(4),
             "start_datetime_first_file": str(struct.unpack(">H", t3w_bin_data_header[66:68])[0]).zfill(2) + str(struct.unpack(">H", t3w_bin_data_header[68:70])[0]).zfill(2) \
                                         + str(struct.unpack(">H", t3w_bin_data_header[70:72])[0]).zfill(2) + str(struct.unpack(">H", t3w_bin_data_header[72:74])[0]).zfill(2) \
                                         + str(struct.unpack(">H", t3w_bin_data_header[74:76])[0]).zfill(2) + str(struct.unpack(">H", t3w_bin_data_header[76:78])[0]).zfill(2) \
-                                        + str(struct.unpack(">H", t3w_bin_data_header[78:80])[0]).zfill(2),
+                                        + str(struct.unpack(">H", t3w_bin_data_header[78:80])[0]).zfill(4),
             "channel_offset_1": struct.unpack(">I", t3w_bin_data_header[224:228])[0],
             "channel_offset_2": struct.unpack(">I", t3w_bin_data_header[228:232])[0],
             "channel_offset_3": struct.unpack(">I", t3w_bin_data_header[232:236])[0],
