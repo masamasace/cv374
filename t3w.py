@@ -4,7 +4,7 @@ from .win32 import Win32Data
 import json
 import pandas as pd
 from obspy import Trace, Stream, UTCDateTime
-from obspy.core.inventory import Inventory, Network, Station, Channel, Site, Sensor, Response
+from obspy.core.inventory import Inventory, Network, Station, Channel, Site
 import datetime as dt
 
 class t3wData():
@@ -45,8 +45,6 @@ class t3wData():
                     azimuth=0,
                     dip=0,
                     sample_rate=1000 / self.t3w_header["sampling_time_interval"],
-                    sensor=Sensor(description=""),
-                    response=Response(response_stages=[])
                 )]
             )]
         )])
@@ -93,12 +91,7 @@ class t3wData():
             temp_trace.stats.calib = self.calib_coeff
             temp_trace.stats.npts = len(temp_trace.data)
             temp_trace.stats.network = ""
-            # prepare location string following ISO 6709 standard
-            # sample +27.5916-086.5640CRSWGS_84
-            
-            # temp_location_str = "{:+02.6f}".format(self.t3w_header["latitude"]) + \
-            #                     "{:+03.6f}".format(self.t3w_header["longitude"]) 
-            # temp_trace.stats.location = temp_location_str
+
             temp_trace.stats.location = ""
             temp_trace.stats.station = ""
             temp_trace.stats.channel = ""
@@ -111,6 +104,8 @@ class t3wData():
         
         temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + ".mseed")
         temp_stream.write(temp_file_path, format="MSEED")
+        
+        print("Exported to", temp_file_path)
         
         return temp_file_path
         
@@ -132,8 +127,6 @@ class t3wData():
 
         temp_t3w_win32_data = Win32Data(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff)
         temp_t3w_win32_data_header = temp_t3w_win32_data.get_header()
-        
-        print(temp_t3w_win32_data_header)
         
         return temp_t3w_win32_data
         

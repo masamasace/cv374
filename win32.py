@@ -98,6 +98,15 @@ class Win32Data():
                 for _ in range(temp_data_block["data_size_per_data_block"] - 1):
                     
                     if temp_data_block["sample_size"] == 0:
+                        temp_first_4bit_processed_flag = False
+                        if not temp_first_4bit_processed_flag:
+                            temp_byte = bin_data.read(1)
+                            temp_inc = struct.unpack(">b", temp_byte)[0] & 0x0F
+                            
+                            temp_first_4bit_processed_flag = True
+                        elif temp_first_4bit_processed_flag:
+                            temp_inc = struct.unpack(">b", temp_byte)[0] & 0xF0
+                            temp_first_4bit_processed_flag = False
                         # 4bit float
                         raise ValueError("Not implemented for sample size 0")
                     elif temp_data_block["sample_size"] == 1:
