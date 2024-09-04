@@ -1,8 +1,8 @@
 from pathlib import Path
 import pandas as pd
 import datetime as dt
-import struct
 from .t3w import t3wData
+from .log import LogData
 
 class DataFormatter:
     def __init__(self, data_dir: Path, time_zone: str = "Japan"):
@@ -24,10 +24,15 @@ class DataFormatter:
         print(f"Data directory: {self.data_dir}")
 
         self._count_dirs_files()
+        
         self._create_result_dir()
         self._create_temp_dir()
-        self._match_files()
-        self._convert_t3w_to_miniseed()
+        
+        self._load_files()
+        
+        # self._match_files()
+        # self._convert_t3w_to_miniseed()
+        # self._create_stationXML()
     
 
     def _count_dirs_files(self):
@@ -80,6 +85,32 @@ class DataFormatter:
 
             if not temp_temp_dir.exists():
                 temp_temp_dir.mkdir(parents=True)
+    
+    # load and store the instance of t3wData and logData
+    def _load_files(self):
+        
+        self.log_file_data = self._load_files_log()
+        
+        self.t3w_file_data = self._load_files_t3w()
+    
+    
+    # load and store the instance of logData
+    def _load_files_log(self):
+        
+        temp_log_file_data = []
+        
+        for i, log_files in enumerate(self.log_file_list):
+            
+            temp_log_file_data_each_dir = []
+            
+            for j, log_file in enumerate(log_files["file_path"]):
+                
+                temp_log_file_data_each = LogData(log_file)
+                temp_log_file_data_each_dir.append(temp_log_file_data_each)
+            
+            temp_log_file_data.append(temp_log_file_data_each_dir)
+        
+    
         
 
     def _match_files(self):
@@ -226,5 +257,9 @@ class DataFormatter:
                 t3w_data = t3wData(t3w_file)
                 temp_sub_dir = t3w_file.parent.relative_to(self.data_dir.parent)
                 t3w_data.export_data_mseed(dir_path=self.data_dir.parent / "res" / temp_sub_dir)
-                
+    
+    
+    def _create_stationXML(self):
+        
+        pass
     
