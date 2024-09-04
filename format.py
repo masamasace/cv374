@@ -222,7 +222,7 @@ class DataFormatter:
                     # otherwise, there is a/some missing files in the directory
                     if t3w_files.loc[j, "group_number"] != t3w_files.loc[j-1, "group_number"]:
                         if temp_sequnce_number != 0:
-                            warnings.warn(f"There may be missing files before {t3w_file}")
+                            warnings.warn(f"\nThere may be missing files before {t3w_file}")
                     # the opposite case is not possible
                 
                 # set the index of the log file which is matched with the t3w file
