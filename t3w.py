@@ -1,13 +1,13 @@
 from pathlib import Path
 import struct
-from .win32 import Win32Data
+from .win32 import Win32Handler
 import json
 import pandas as pd
 from obspy import Trace, Stream, UTCDateTime
 from obspy.core.inventory import Inventory, Network, Station, Channel, Site
 import datetime as dt
 
-class t3wData():
+class T3WHandler():
     def __init__(self, file_path, calib_coeff=2.048 / 2 ** 23):
         
         self.file_path = Path(file_path).resolve()
@@ -17,48 +17,22 @@ class t3wData():
         self._read_t3w_file()
     
     def export_header(self, dir_path=None):
-        t3w_header = self.t3w_header
+        t3w_header = self.header
         
         if not dir_path:
             dir_path = self.file_path.parent
+            
+        raise ValueError("Not implemented yet")
         
-    def export_header_stationxml(self, dir_path=None):
-        
-        if not dir_path:
-            dir_path = self.file_path.parent
-        
-        temp_inventory = Inventory(networks=[Network(
-            code="",
-            stations=[Station(
-                code="",
-                latitude=self.t3w_header["latitude"],
-                longitude=self.t3w_header["longitude"],
-                elevation=0,
-                site=Site(name=""),
-                channels=[Channel(
-                    code="HLN",
-                    location_code="",
-                    latitude=self.t3w_header["latitude"],
-                    longitude=self.t3w_header["longitude"],
-                    elevation=self,
-                    depth=0,
-                    azimuth=0,
-                    dip=0,
-                    sample_rate=1000 / self.t3w_header["sampling_time_interval"],
-                )]
-            )]
-        )])
-
-    
     def export_data_csv(self, dir_path=None, time_format="relative"):
         
         if not dir_path:
             dir_path = self.file_path.parent
         
-        temp_data = pd.DataFrame(self.t3w_win32_data.get_data_float())
+        temp_data = pd.DataFrame(self.data.get_data_float())
         temp_data.columns = [0, 1, 2]
-        temp_data["relative_time"] = temp_data.index * self.t3w_header["sampling_time_interval"] / 1000
-        temp_data["absolute_time"] = pd.to_datetime(self.t3w_header["start_datetime_this_file"], format="%Y%m%d%H%M%S%f") \
+        temp_data["relative_time"] = temp_data.index * self.header["sampling_time_interval"] / 1000
+        temp_data["absolute_time"] = pd.to_datetime(self.header["start_datetime_this_file"], format="%Y%m%d%H%M%S%f") \
             + pd.to_timedelta(temp_data["relative_time"], unit="s")
             
         # change order of columns
@@ -81,11 +55,11 @@ class t3wData():
         
         temp_stream = Stream()
         
-        temp_data = self.t3w_win32_data.get_data_float()
+        temp_data = self.data.get_data_float()
         
         for i in range(3):
             temp_trace = Trace(data=temp_data[:, i])
-            temp_trace.stats.sampling_rate = 1000 / self.t3w_header["sampling_time_interval"]
+            temp_trace.stats.sampling_rate = 1000 / self.header["sampling_time_interval"]
 
             temp_trace.stats.delta = 1 / temp_trace.stats.sampling_rate
             temp_trace.stats.calib = self.calib_coeff
@@ -95,7 +69,7 @@ class t3wData():
             temp_trace.stats.location = ""
             temp_trace.stats.station = ""
             temp_trace.stats.channel = ""
-            temp_start_datetime = dt.datetime.strptime(self.t3w_header["start_datetime_this_file"], 
+            temp_start_datetime = dt.datetime.strptime(self.header["start_datetime_this_file"], 
                                                        "%Y%m%d%H%M%S%f")
             temp_start_datetime = temp_start_datetime.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
             temp_trace.stats.starttime = UTCDateTime(temp_start_datetime)
@@ -118,14 +92,14 @@ class t3wData():
         temp_t3w_bin_data_win32 = temp_t3w_bin_data[1024:]
         
         # Read the header
-        self.t3w_header = self._read_t3w_header(temp_t3w_bin_data_header)
+        self.header = self._read_t3w_header(temp_t3w_bin_data_header)
         
         # Read the win32 data
-        self.t3w_win32_data = self._read_win32_data(temp_t3w_bin_data_win32, self.t3w_header)
+        self.data = self._read_win32_data(temp_t3w_bin_data_win32, self.header)
     
     def _read_win32_data(self, t3w_bin_data_win32, t3w_header):
 
-        temp_t3w_win32_data = Win32Data(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff)
+        temp_t3w_win32_data = Win32Handler(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff)
         temp_t3w_win32_data_header = temp_t3w_win32_data.get_header()
         
         return temp_t3w_win32_data
@@ -136,6 +110,7 @@ class t3wData():
             "device_program_name": struct.unpack(">12s", t3w_bin_data_header[4:16])[0].decode("utf-8"),
             "device_number": struct.unpack(">H", t3w_bin_data_header[24:26])[0],
             "num_channel": struct.unpack(">H", t3w_bin_data_header[30:32])[0],
+            "sampling_num_per_channel": struct.unpack(">I", t3w_bin_data_header[32:36])[0],
             "sampling_time_interval": struct.unpack(">H", t3w_bin_data_header[40:42])[0],
             "delay_time": struct.unpack(">H", t3w_bin_data_header[42:44])[0],
             "sequence_number": struct.unpack(">H", t3w_bin_data_header[50:52])[0],
@@ -155,7 +130,7 @@ class t3wData():
             "north_south_flag": struct.unpack(">c", t3w_bin_data_header[828:829])[0].decode("utf-8"),
             "east_west_flag": struct.unpack(">c", t3w_bin_data_header[829:830])[0].decode("utf-8")
         }
-        
+        temp_t3w_header["recording_duration"] = temp_t3w_header["sampling_num_per_channel"] * temp_t3w_header["sampling_time_interval"] / 1000
         temp_t3w_header["latitude"] *= -1 if temp_t3w_header["north_south_flag"] == "S" else 1
         temp_t3w_header["longitude"] *= -1 if temp_t3w_header["east_west_flag"] == "W" else 1
         

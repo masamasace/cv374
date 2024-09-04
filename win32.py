@@ -6,11 +6,11 @@ import pandas as pd
 import numpy as np
 # Win32 data class
 # two options to import data
-# 1. from the file path: Win32Data(file_path)
-# 2. from the binary data: Win32Data.read_bin(bin_data)
-# Both options will return the Win32Data object including self.win32_bin_data as binary data
+# 1. from the file path: Win32Handler(file_path)
+# 2. from the binary data: Win32Handler.read_bin(bin_data)
+# Both options will return the Win32Handler object including self.win32_bin_data as binary data
 
-class Win32Data():
+class Win32Handler():
     
     def __init__(self, file_path=None, bin_data=None, calib_coeff=1, num_channel=3):
         

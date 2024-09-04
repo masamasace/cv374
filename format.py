@@ -1,8 +1,10 @@
 from pathlib import Path
 import pandas as pd
 import datetime as dt
-from .t3w import t3wData
-from .log import LogData
+from .t3w import T3WHandler
+from .log import LogHandler
+import sqlite3
+import warnings
 
 class DataFormatter:
     def __init__(self, data_dir: Path, time_zone: str = "Japan"):
@@ -30,7 +32,7 @@ class DataFormatter:
         
         self._load_files()
         
-        # self._match_files()
+        self._match_files()
         # self._convert_t3w_to_miniseed()
         # self._create_stationXML()
     
@@ -86,15 +88,19 @@ class DataFormatter:
             if not temp_temp_dir.exists():
                 temp_temp_dir.mkdir(parents=True)
     
-    # load and store the instance of t3wData and logData
+    # load and store the instance of T3WHandler and LogHandler
     def _load_files(self):
         
         self.log_file_data = self._load_files_log()
+        print("-" * 20)
+        print("Log files are loaded")
         
         self.t3w_file_data = self._load_files_t3w()
+        print("-" * 20)
+        print("T3W files are loaded")
     
     
-    # load and store the instance of logData
+    # load and store the instance of LogHandler
     def _load_files_log(self):
         
         temp_log_file_data = []
@@ -105,156 +111,143 @@ class DataFormatter:
             
             for j, log_file in enumerate(log_files["file_path"]):
                 
-                temp_log_file_data_each = LogData(log_file)
+                temp_log_file_data_each = LogHandler(log_file, time_zone=self.time_zone)
                 temp_log_file_data_each_dir.append(temp_log_file_data_each)
             
             temp_log_file_data.append(temp_log_file_data_each_dir)
-        
+            
+        return temp_log_file_data
     
         
-
+    def _load_files_t3w(self):
+        
+        temp_t3w_file_data = []
+        
+        for i, t3w_files in enumerate(self.t3w_file_list):
+            
+            temp_t3w_file_data_each_dir = []
+            
+            for j, t3w_file in enumerate(t3w_files["file_path"]):
+                
+                temp_t3w_file_data_each = T3WHandler(t3w_file)
+                temp_t3w_file_data_each_dir.append(temp_t3w_file_data_each)
+            
+            temp_t3w_file_data.append(temp_t3w_file_data_each_dir)
+        
+        return temp_t3w_file_data
+    
+    # print lat and long in t3w files
+    # this is for checking the data
+    # the latitude and longitude in t3w files are not recommended to use
+    # because they are not accurate
+    def _print_lat_long_from_t3w(self):
+        
+        for i, t3w_files in enumerate(self.t3w_file_list):
+            for j, t3w_file in enumerate(t3w_files["file_path"]):
+                
+                temp_t3w_file_data = self.t3w_file_data[i][j]
+                
+                print(t3w_file.stem, end=": ")
+                print("latitude: ", temp_t3w_file_data.header["latitude"], end=", ")
+                print("longitude: ", temp_t3w_file_data.header["longitude"])
+    
+    # match the t3w and log files
+    # make three labels to the t3w files
+    # 1. the subdirectory index of the t3w file
+    # 2. the index of the log file which is matched with the t3w file
+    # 3. the group number of the t3w file
+    
     def _match_files(self):
-
-        print("-" * 20)
-
-        temp_col_name_GPGGA = ["log_type", "UTC_time", "latitude", "NS",
-                               "longitude", "EW", "quality", "num_satellites",
-                               "HDOP", "altitude", "M", "geoid_height", "M", "id", "checksum"]
-        temp_col_name_GPGGA_inuse = ["UTC_time", "local_time", "JP_time", "latitude", "longitude", "quality", "num_satellites", "HDOP", "altitude", "geoid_height"]
-        temp_col_name_GPZDA = ["log_type", "UTC_time", "day", "month", "year", "local_zone", "local_zone_minute-checksum"]
-
-        # read the log file which is nmea log file
-        for i, log_files in enumerate(self.log_file_list):
-
-            self.t3w_file_list[i]["match_log_index"] = -1
+        
+        
+        for i, t3w_files in enumerate(self.t3w_file_list):
+            temp_group_number = 0
             
-            for j, log_file in enumerate(log_files["file_path"]):
-
-                temp_line_GPGGA = []
-                temp_line_GPZDA = []
-
-                with open(log_file, "r") as f:
-                    lines = f.readlines()
-
-                for line in lines:
-                    if "$GPGGA" in line:
-                        temp_line_GPGGA.append(line.strip().split(","))
-                    elif "$GPZDA" in line:
-                        temp_line_GPZDA.append(line.strip().split(","))
-                
-                temp_df_GPGGA = pd.DataFrame(temp_line_GPGGA, columns=temp_col_name_GPGGA)
-                temp_df_GPZDA = pd.DataFrame(temp_line_GPZDA, columns=temp_col_name_GPZDA)
-
-                # drop id column in GPGGA
-                temp_df_GPGGA = temp_df_GPGGA.drop("id", axis=1)
-
-                # drop null rows and reset index
-                temp_df_GPGGA = temp_df_GPGGA.replace("", pd.NA)
-                temp_df_GPZDA = temp_df_GPZDA.replace("", pd.NA)
-                temp_df_GPGGA = temp_df_GPGGA.dropna(axis="index").reset_index(drop=True)
-                temp_df_GPZDA = temp_df_GPZDA.dropna(axis="index").reset_index(drop=True)
-
-                temp_start_date = temp_df_GPZDA["year"][0] + temp_df_GPZDA["month"][0] + temp_df_GPZDA["day"][0]
-                temp_start_time = temp_df_GPGGA["UTC_time"][0]
-                temp_start_datetime = dt.datetime.strptime(temp_start_date + temp_start_time, "%Y%m%d%H%M%S.%f")
-
-                # convert datetime string in GPGGA to dataetime object with use of temp_start_datetime
-                temp_df_GPGGA["UTC_time"] = pd.to_datetime(temp_df_GPGGA["UTC_time"], format="%H%M%S.%f", utc=True)
-                temp_df_GPGGA["UTC_time"] = temp_df_GPGGA["UTC_time"].apply(lambda x: x.replace(year=temp_start_datetime.year, month=temp_start_datetime.month, day=temp_start_datetime.day))
-                
-                # make column of local time zone
-                temp_df_GPGGA["local_time"] = temp_df_GPGGA["UTC_time"].dt.tz_convert(self.time_zone)
-
-                # make column of Japanese time zone
-                temp_df_GPGGA["JP_time"] = temp_df_GPGGA["UTC_time"].dt.tz_convert("Japan")
-
-                # convert latitude and longitude to float
-                # ddmm.mmmmmmm -> dd + mm.mmmmmmm/60
-                temp_df_GPGGA["latitude"] = temp_df_GPGGA["latitude"].astype(float)
-                temp_df_GPGGA["longitude"] = temp_df_GPGGA["longitude"].astype(float)
-
-                temp_df_GPGGA["latitude"] = temp_df_GPGGA["latitude"].apply(lambda x: int(x/100) + (x % 100)/60)
-                temp_df_GPGGA["longitude"] = temp_df_GPGGA["longitude"].apply(lambda x: int(x/100) + (x % 100)/60)
-
-                # consider the direction of latitude and longitude
-                temp_df_GPGGA["latitude"] = temp_df_GPGGA["latitude"] * (1 if temp_df_GPGGA["NS"][0] == "N" else -1)
-                temp_df_GPGGA["longitude"] = temp_df_GPGGA["longitude"] * (1 if temp_df_GPGGA["EW"][0] == "E" else -1)
-
-                # convert quality, num_satellites, HDOP, altitude, geoid_height to float
-                temp_df_GPGGA["quality"] = temp_df_GPGGA["quality"].astype(float)
-                temp_df_GPGGA["num_satellites"] = temp_df_GPGGA["num_satellites"].astype(float)
-                temp_df_GPGGA["HDOP"] = temp_df_GPGGA["HDOP"].astype(float)
-                temp_df_GPGGA["altitude"] = temp_df_GPGGA["altitude"].astype(float)
-                temp_df_GPGGA["geoid_height"] = temp_df_GPGGA["geoid_height"].astype(float)
-
-                # drop unnecessary columns
-                temp_df_GPGGA = temp_df_GPGGA[temp_col_name_GPGGA_inuse]
-
-                # filter the data with quality == 1
-                temp_df_GPGGA_filtered = temp_df_GPGGA[temp_df_GPGGA["quality"] >= 1]
-
-                # filter the data with the minimum HDOP
-                temp_df_GPGGA_filtered = temp_df_GPGGA_filtered[temp_df_GPGGA_filtered["HDOP"] == temp_df_GPGGA_filtered["HDOP"].min()]
-                
-                # take average of the data
-                temp_df_GPGGA_filtered = temp_df_GPGGA_filtered[["latitude", "longitude", "quality", "num_satellites", "HDOP", "altitude", "geoid_height"]].mean()
-                
-                # add the data to the log files
-                log_files.loc[j, "latitude"] = temp_df_GPGGA_filtered["latitude"]
-                log_files.loc[j, "longitude"] = temp_df_GPGGA_filtered["longitude"]
-                log_files.loc[j, "quality"] = temp_df_GPGGA_filtered["quality"]
-                log_files.loc[j, "num_satellites"] = temp_df_GPGGA_filtered["num_satellites"]
-                log_files.loc[j, "HDOP"] = temp_df_GPGGA_filtered["HDOP"]
-                log_files.loc[j, "altitude"] = temp_df_GPGGA_filtered["altitude"]
-                log_files.loc[j, "geoid_height"] = temp_df_GPGGA_filtered["geoid_height"]
-
-                # check the start and end datetime of the log file
-                # this is because stem of t3w file is consisted of the JP time
-                temp_start_datetime = temp_df_GPGGA["JP_time"][0]
-                temp_end_datetime = temp_df_GPGGA["JP_time"].iloc[-1]
-
-                # find the t3w files which are in the time range of the log file
-                temp_group_number = 0
-
-                for k, t3w_file in enumerate(self.t3w_file_list[i]["file_path"]):
-                    temp_t3w_file_stem = t3w_file.stem
-                    temp_t3w_file_datetime = dt.datetime.strptime(temp_t3w_file_stem[:-4], "%Y%m%d%H%M%S")
-                    temp_t3w_file_datetime = temp_t3w_file_datetime.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-
-                    if temp_start_datetime <= temp_t3w_file_datetime <= temp_end_datetime:
-                        self.t3w_file_list[i].loc[k, "match_log_index"] = j
-                    
-                    if k == 0:
-                        temp_group_number = 0
-                    else:
-                        temp_t3w_file_stem_prev = self.t3w_file_list[i].iloc[k-1]["file_path"].stem
-                        temp_t3w_file_datetime_prev = dt.datetime.strptime(temp_t3w_file_stem_prev[:-4], "%Y%m%d%H%M%S")
-                        temp_t3w_file_datetime_prev = temp_t3w_file_datetime_prev.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-
-                        if (temp_t3w_file_datetime - temp_t3w_file_datetime_prev).total_seconds() != 60 * 5:
-                            temp_group_number += 1
-                    
-                    self.t3w_file_list[i].loc[k, "group_number"] = temp_group_number
+            t3w_files["dir_index"] = -1
+            t3w_files["match_log_index"] = -1
+            t3w_files["group_number"] = -1
             
-            # count unmatched t3w files
-            temp_unmatched_t3w_files = self.t3w_file_list[i][self.t3w_file_list[i]["match_log_index"] == -1]
-            print(f"Number of unmatched t3w files in {self.sub_dir_list[i].relative_to(self.data_dir)}: {len(temp_unmatched_t3w_files)}")
-
-            # export the log files and t3w files as csv format
-            temp_sub_dir = self.sub_dir_list[i].relative_to(self.data_dir.parent)
-            temp_log_file = self.data_dir.parent / "res" / temp_sub_dir / "log.csv"
-            temp_t3w_file = self.data_dir.parent / "res" / temp_sub_dir / "t3w.csv"
-
-            log_files.to_csv(temp_log_file, index=True, index_label="index")
-            self.t3w_file_list[i].to_csv(temp_t3w_file, index=True, index_label="index")
-
+            self.log_file_list[i]["dir_index"] = -1
+            
+            for j, t3w_file in enumerate(t3w_files["file_path"]):
+                
+                t3w_files.loc[j, "dir_index"] = i
+                temp_t3w_file_data = self.t3w_file_data[i][j]
+                
+                # set group number
+                # there are two ways to get the start time of the t3w file
+                # 1. use the start datetime in the header of the t3w file
+                # 2. use the start datetime of the stem of the t3w file
+                # the second way is recommended because we have no way to process non-existing files 
+                # but both are implemented here
+                # the second way is higher priority than the first way
+                # TODO: time_zone of start_datetime is hard-coded
+                
+                # 1. use the start datetime in the header of the t3w file
+                temp_start_datetime_from_header = temp_t3w_file_data.header["start_datetime_this_file"]
+                temp_start_datetime_from_header = dt.datetime.strptime(temp_start_datetime_from_header, "%Y%m%d%H%M%S%f")
+                temp_start_datetime_from_header = temp_start_datetime_from_header.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+                temp_start_datetime_first_file_from_header = temp_t3w_file_data.header["start_datetime_first_file"]
+                temp_start_datetime_first_file_from_header = dt.datetime.strptime(temp_start_datetime_first_file_from_header, 
+                                                                                  "%Y%m%d%H%M%S%f")
+                temp_start_datetime_first_file_from_header = temp_start_datetime_first_file_from_header.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+                temp_sequnce_number = temp_t3w_file_data.header["sequence_number"]
+                
+                # 2. use the start datetime of the stem of the t3w file
+                temp_start_datetime_from_stem = t3w_file.stem
+                temp_start_datetime_from_stem = dt.datetime.strptime(temp_start_datetime_from_stem[:-4], 
+                                                                     "%Y%m%d%H%M%S")
+                temp_start_datetime_from_stem = temp_start_datetime_from_stem.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+                temp_recording_duration_from_header = temp_t3w_file_data.header["recording_duration"]
+                temp_recording_duration_from_header = dt.timedelta(seconds=temp_recording_duration_from_header)
+                temp_end_datetime_from_stem = temp_start_datetime_from_stem + temp_recording_duration_from_header
+                
+                if j == 0:
+                    t3w_files.loc[j, "group_number"] = temp_group_number
+                else:
+                    temp_t3w_file_stem_prev_from_stem = t3w_files.iloc[j-1]["file_path"].stem
+                    temp_t3w_file_datetime_prev_from_stem = dt.datetime.strptime(temp_t3w_file_stem_prev_from_stem[:-4], "%Y%m%d%H%M%S")
+                    temp_t3w_file_datetime_prev_from_stem = temp_t3w_file_datetime_prev_from_stem.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+                    temp_recording_duration_prev_from_header = self.t3w_file_data[i][j-1].header["recording_duration"]
+                    temp_recording_duration_prev_from_header = dt.timedelta(seconds=temp_recording_duration_prev_from_header)
+                    
+                    if (temp_start_datetime_from_stem - temp_t3w_file_datetime_prev_from_stem - temp_recording_duration_prev_from_header).total_seconds() != 0:
+                        temp_group_number += 1
+                    
+                    t3w_files.loc[j, "group_number"] = temp_group_number
+                    
+                    # check by using temp_sequnce_number
+                    # if the group number is different from the previous one
+                    # the sequence number should be 0
+                    # otherwise, there is a/some missing files in the directory
+                    if t3w_files.loc[j, "group_number"] != t3w_files.loc[j-1, "group_number"]:
+                        if temp_sequnce_number != 0:
+                            warnings.warn(f"There may be missing files before {t3w_file}")
+                    # the opposite case is not possible
+                
+                # set the index of the log file which is matched with the t3w file
+                # TODO: 3-times nested for loop
+                
+                for k, log_file in enumerate(self.log_file_list[i]["file_path"]):
+                    
+                    self.log_file_list[i].loc[k, "dir_index"] = i
+                    
+                    temp_log_file_data = self.log_file_data[i][k]
+                    temp_start_datetime_from_log = temp_log_file_data.stats["start_time"]
+                    temp_end_datetime_from_log = temp_log_file_data.stats["end_time"]
+                    
+                    if temp_start_datetime_from_log <= temp_end_datetime_from_stem and temp_start_datetime_from_stem <= temp_end_datetime_from_log:
+                        t3w_files.loc[j, "match_log_index"] = k
+                        break
+            
+        print(self.t3w_file_list)
 
     def _convert_t3w_to_miniseed(self):
 
         for t3w_files in self.t3w_file_list:
             for t3w_file in t3w_files["file_path"]:
 
-                t3w_data = t3wData(t3w_file)
+                t3w_data = T3WHandler(t3w_file)
                 temp_sub_dir = t3w_file.parent.relative_to(self.data_dir.parent)
                 t3w_data.export_data_mseed(dir_path=self.data_dir.parent / "res" / temp_sub_dir)
     

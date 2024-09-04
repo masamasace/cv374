@@ -2,7 +2,7 @@ from pathlib import Path
 import pandas as pd
 import datetime as dt
 
-class LogData:
+class LogHandler:
     
     def __init__(self, file_path, time_zone="Japan"):
         

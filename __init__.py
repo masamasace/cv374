@@ -1,4 +1,4 @@
 from .format import DataFormatter
-from .t3w import t3wData
-from .win32 import Win32Data
-from .log import LogData
+from .t3w import T3WHandler
+from .win32 import Win32Handler
+from .log import LogHandler
