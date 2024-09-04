@@ -4,6 +4,7 @@ from .win32 import Win32Data
 import json
 import pandas as pd
 from obspy import Trace, Stream, UTCDateTime
+from obspy.core.inventory import Inventory, Network, Station, Channel, Site, Sensor, Response
 import datetime as dt
 
 class t3wData():
@@ -21,12 +22,35 @@ class t3wData():
         if not dir_path:
             dir_path = self.file_path.parent
         
-        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + "_header.json")
+    def export_header_stationxml(self, dir_path=None):
         
-        with open(temp_file_path, "w") as f:
-            json.dump(t3w_header, f, indent=4)
+        if not dir_path:
+            dir_path = self.file_path.parent
         
-        return temp_file_path
+        temp_inventory = Inventory(networks=[Network(
+            code="",
+            stations=[Station(
+                code="",
+                latitude=self.t3w_header["latitude"],
+                longitude=self.t3w_header["longitude"],
+                elevation=0,
+                site=Site(name=""),
+                channels=[Channel(
+                    code="HLN",
+                    location_code="",
+                    latitude=self.t3w_header["latitude"],
+                    longitude=self.t3w_header["longitude"],
+                    elevation=self,
+                    depth=0,
+                    azimuth=0,
+                    dip=0,
+                    sample_rate=1000 / self.t3w_header["sampling_time_interval"],
+                    sensor=Sensor(description=""),
+                    response=Response(response_stages=[])
+                )]
+            )]
+        )])
+
     
     def export_data_csv(self, dir_path=None, time_format="relative"):
         
