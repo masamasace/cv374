@@ -2,8 +2,8 @@ from pathlib import Path
 import struct
 import io
 import datetime
-import pandas as pd
 import numpy as np
+from obspy import Trace, Stream, UTCDateTime
 # Win32 data class
 # two options to import data
 # 1. from the file path: Win32Handler(file_path)
@@ -18,28 +18,16 @@ class Win32Handler():
         self.num_channel = num_channel
         
         if file_path:
-            self.header, self.data_int, self.data_float = self.set_file_path(file_path)
+            self.header, self.stream = self.set_file_path(file_path)
         
         elif bin_data:
-            self.header, self.data_int, self.data_float = self.read_bin_data(bin_data)
+            self.header, self.stream = self.read_bin_data(bin_data)
     
     def get_header(self):
         return self.header
     
-    def get_data_int(self):
-        return self.data_int
-    
-    def get_data_float(self):
-        return self.data_float
-    
-    def get_data(self, data_type="int"):
-        
-        if data_type == "int":
-            return self.data_int
-        elif data_type == "float":
-            return self.data_float
-        else:
-            raise ValueError("Invalid data type")
+    def get_stream(self):
+        return self.stream
         
     
     def set_file_path(self, file_path):
@@ -128,31 +116,30 @@ class Win32Handler():
             temp_second_block["data"] = temp_second_block_data
             temp_data.append(temp_second_block)
         
-        temp_data_int, temp_data_float = self._verify_data(temp_data)
+        # covert data to obspy format 
+        temp_stream = Stream()
         
-        return (self.header, temp_data_int, temp_data_float)
+        for i in range(self.num_channel):
+            temp_trace = Trace(data=np.array([temp_data[j]["data"][i]["data"] for j in range(len(temp_data))]).flatten())
+            temp_trace.stats.sampling_rate = 1 / (temp_data[0]["frame_length"] / 1000)
+            temp_trace.stats.delta = 1 / temp_trace.stats.sampling_rate
+            temp_trace.stats.calib = self.calib_coeff
+            temp_trace.stats.npts = len(temp_trace.data)
+            temp_trace.stats.network = ""
+            temp_trace.stats.location = ""
+            temp_trace.stats.station = ""
+            temp_trace.stats.channel = ""
+            temp_trace.stats.starttime = UTCDateTime(temp_start_datetime_dt)
+            temp_stream.append(temp_trace)
         
-    def _verify_data(self, data):
-        
-        self.header["start_datatime"] = data[0]["start_datetime"]
-        self.header["end_datetime"] = data[-1]["start_datetime"]
-        self.header["sampling_rate"] = 1 / (data[0]["frame_length"] / 1000)
+        # prepare header
+        self.header["start_datatime"] = temp_data[0]["start_datetime"]
+        self.header["end_datetime"] = temp_data[-1]["start_datetime"]
+        self.header["sampling_rate"] = 1 / (temp_data[0]["frame_length"] / 1000)
         self.header["calib_coeff"] = self.calib_coeff
         self.header["num_channel"] = self.num_channel
         
-        temp_data = [data[0]["data"][i]["data"]for i in range(self.num_channel)]
-        temp_data = np.array(temp_data)
+        return (self.header, temp_stream)
         
-        for i in range(1,len(data)):
-            
-            temp_data_block = [data[i]["data"][j]["data"] for j in range(self.num_channel)]
-            temp_data_block = np.array(temp_data_block)
-            temp_data = np.hstack((temp_data, temp_data_block))
-            
-        temp_data_int = temp_data.T
-        temp_data_float = temp_data_int * self.calib_coeff
-        
-        return (temp_data_int, temp_data_float)
-    
     
     

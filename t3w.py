@@ -4,7 +4,6 @@ from .win32 import Win32Handler
 import json
 import pandas as pd
 from obspy import Trace, Stream, UTCDateTime
-from obspy.core.inventory import Inventory, Network, Station, Channel, Site
 import datetime as dt
 
 class T3WHandler():
@@ -29,7 +28,8 @@ class T3WHandler():
         if not dir_path:
             dir_path = self.file_path.parent
         
-        temp_data = pd.DataFrame(self.data.get_data_float())
+        # TODO: to be updated to handle obspy stream
+        temp_data = pd.DataFrame(self.stream.get_data_float())
         temp_data.columns = [0, 1, 2]
         temp_data["relative_time"] = temp_data.index * self.header["sampling_time_interval"] / 1000
         temp_data["absolute_time"] = pd.to_datetime(self.header["start_datetime_this_file"], format="%Y%m%d%H%M%S%f") \
@@ -55,7 +55,8 @@ class T3WHandler():
         
         temp_stream = Stream()
         
-        temp_data = self.data.get_data_float()
+        # TODO: to be updated to handle obspy stream
+        temp_data = self.stream.get_data_float()
         
         for i in range(3):
             temp_trace = Trace(data=temp_data[:, i])
@@ -95,14 +96,15 @@ class T3WHandler():
         self.header = self._read_t3w_header(temp_t3w_bin_data_header)
         
         # Read the win32 data
-        self.data = self._read_win32_data(temp_t3w_bin_data_win32, self.header)
+        self.stream = self._read_win32_data(temp_t3w_bin_data_win32, self.header)
     
     def _read_win32_data(self, t3w_bin_data_win32, t3w_header):
 
         temp_t3w_win32_data = Win32Handler(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff)
         temp_t3w_win32_data_header = temp_t3w_win32_data.get_header()
+        temp_t3w_win32_data_stream = temp_t3w_win32_data.get_stream()
         
-        return temp_t3w_win32_data
+        return temp_t3w_win32_data_stream
         
     def _read_t3w_header(self, t3w_bin_data_header):
         

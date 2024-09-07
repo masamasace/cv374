@@ -276,6 +276,7 @@ class DataFormatter:
 
                 t3w_data = T3WHandler(t3w_file)
                 temp_sub_dir = t3w_file.parent.relative_to(self.data_dir.parent)
+                # TODO: to be updated to handle obspy stream
                 t3w_data.export_data_mseed(dir_path=self.data_dir.parent / "res" / temp_sub_dir)
     
     
