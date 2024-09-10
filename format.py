@@ -45,7 +45,10 @@ class DataFormatter:
         print("-" * 40)
         print(f"Data directory: {self.data_dir}")
 
-        self._count_dirs_files()
+        self._create_temp_root_dir()
+        self._create_result_root_dir()
+
+        self._create_file_list()
         
         self._create_result_dir()
         self._create_temp_dir()
@@ -84,8 +87,54 @@ class DataFormatter:
         # self.compute_HVSR()
         ## compute HVSR from the data with use of https://github.com/jpvantassel/hvsrpy
     
+    def _create_result_root_dir(self):
 
-    def _count_dirs_files(self):
+        self.res_root_dir = self.data_dir.parent / "res"
+
+        if not self.res_root_dir.exists():
+            self.res_root_dir.mkdir(parents=True)
+    
+    
+    def _create_temp_root_dir(self):
+
+        self.tmp_root_dir = self.data_dir.parent / "tmp"
+
+        if not self.tmp_root_dir.exists():
+            self.tmp_root_dir.mkdir(parents=True)
+
+
+    def _create_file_list(self):
+
+        self.log_file_list_path = self.res_root_dir / "log_file_list.csv"
+        self.t3w_file_list_path = self.res_root_dir / "t3w_file_list.csv"
+
+        if self.log_file_list_path.exists():
+            self.log_file_list, self.t3w_file_list = self._import_file_list()
+        
+        else:
+            self.log_file_list, self.t3w_file_list = self._create_file_list_from_scratch()
+
+    def _import_file_list(self):
+
+        temp_log_file_list = pd.read_csv(self.log_file_list_path)
+        temp_t3w_file_list = pd.read_csv(self.t3w_file_list_path)
+
+        # if any of the files does not exist, update the file list
+        if not temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+            temp_log_file_list["file_path"] = temp_log_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
+        
+            if not temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+                raise FileNotFoundError("Some of the log files do not exist")
+        
+        if not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+            temp_t3w_file_list["file_path"] = temp_t3w_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
+        
+            if not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+                raise FileNotFoundError("Some of the t3w files do not exist")
+
+        return (temp_log_file_list, temp_t3w_file_list)
+        
+
         
         # list t3w_file_list and log_file_list
         self.t3w_file_list = list(self.data_dir.glob("**/*.t3w"))
