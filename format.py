@@ -5,6 +5,7 @@ from .t3w import T3WHandler
 from .log import LogHandler
 import sqlite3
 import warnings
+import numpy as np
 
 class DataFormatter:
     def __init__(self, data_dir: Path, time_zone: str = "Japan"):
@@ -13,6 +14,22 @@ class DataFormatter:
         ----------
         data_dir : Path
             The directory where the microtremor data is stored.
+            data_dir should have the following structure:
+
+            data_dir
+            ├── sub_dir_1
+            │   ├── t3w_file_1_1.t3w
+            │   ├── t3w_file_1_2.t3w
+            │   ├── ...
+            │   ├── log_file_1_1.log
+            │   ├── log_file_1_2.log
+            │   └── ...
+            ├── sub_dir_2
+            │   ├── t3w_file_2_1.t3w
+            │   ├── t3w_file_2_2.t3w
+            │   ├── ...
+            │   ├── log_file_2_1.log
+        
         time_zone : str
             The time zone of the data. Default is "Japan".
             Please refer to the following link for the list of time zones:
@@ -66,41 +83,53 @@ class DataFormatter:
     
 
     def _count_dirs_files(self):
-
-        # count the number of subdirectories
-        self.sub_dir_list = [x for x in self.data_dir.iterdir() if x.is_dir()]
-
-        # sort the subdirectories
-        self.sub_dir_list.sort()
-
-        print(f"Number of subdirectories: {len(self.sub_dir_list)}")
-        print("-" * 20)
-
-        # count the number of t3w and log files in each subdirectory
-        self.t3w_file_list = []
-        self.log_file_list = []
-
-        for sub_dir in self.sub_dir_list:
-            t3w_files = list(sub_dir.glob("**/*.t3w"))
-            log_files = list(sub_dir.glob("**/*.log"))
-
-            # sort the files
-            t3w_files = pd.DataFrame(t3w_files, columns=["file_path"])
-            log_files = pd.DataFrame(log_files, columns=["file_path"])
-
-            self.t3w_file_list.append(t3w_files)
-            self.log_file_list.append(log_files)
         
-            print(f"Number of t3w files in {sub_dir.relative_to(self.data_dir)}: {len(t3w_files)}")
-            print(f"Number of log files in {sub_dir.relative_to(self.data_dir)}: {len(log_files)}")
-    
-    
+        # list t3w_file_list and log_file_list
+        self.t3w_file_list = list(self.data_dir.glob("**/*.t3w"))
+        self.log_file_list = list(self.data_dir.glob("**/*.log"))
+
+        # sort the files
+        self.t3w_file_list = pd.DataFrame(self.t3w_file_list, columns=["file_path"])
+        self.log_file_list = pd.DataFrame(self.log_file_list, columns=["file_path"])
+
+        # add stem to the dataframes
+        self.t3w_file_list["stem"] = self.t3w_file_list["file_path"].apply(lambda x: x.stem)
+        self.log_file_list["stem"] = self.log_file_list["file_path"].apply(lambda x: x.stem)
+
+        # create sub_dir_index column
+        self.t3w_file_list["sub_dir_name"] = self.t3w_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
+        self.log_file_list["sub_dir_name"] = self.log_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
+
+        # create sub_dir_name and sub_dir_index dataframes
+        temp_sub_dir_name = np.concatenate([self.t3w_file_list["sub_dir_name"].unique(), self.log_file_list["sub_dir_name"].unique()])
+        temp_sub_dir_name
+        temp_sub_dir_name = set(temp_sub_dir_name)
+        self.sub_dir_list = pd.DataFrame(temp_sub_dir_name, columns=["sub_dir_name"])
+        self.sub_dir_list["sub_dir_index"] = self.sub_dir_list.index
+
+        # rcreate sub_dir_index column in t3w_file_list and log_file_list
+        self.t3w_file_list["sub_dir_index"] = self.t3w_file_list["sub_dir_name"].apply(lambda x: self.sub_dir_list[self.sub_dir_list["sub_dir_name"] == x].index[0])
+        self.log_file_list["sub_dir_index"] = self.log_file_list["sub_dir_name"].apply(lambda x: self.sub_dir_list[self.sub_dir_list["sub_dir_name"] == x].index[0])
+
+        # sort the files by sub_dir_index and stem
+        self.t3w_file_list = self.t3w_file_list.sort_values(by=["sub_dir_index", "stem"])
+        self.log_file_list = self.log_file_list.sort_values(by=["sub_dir_index", "stem"])
+        
+        # reset the index
+        self.t3w_file_list = self.t3w_file_list.reset_index(drop=True)
+        self.log_file_list = self.log_file_list.reset_index(drop=True)
+
+        # print result
+        print(f"Number of t3w files: {len(self.t3w_file_list)}")
+        print(f"Number of log files: {len(self.log_file_list)}")
+        print(f"Number of subdirectories: {len(self.sub_dir_list)}")
+        print("-" * 40)
+
     def _create_result_dir(self):
 
-        for sub_dir in self.sub_dir_list:
-
-            temp_sub_dir = sub_dir.relative_to(self.data_dir.parent)
-            temp_result_dir = self.data_dir.parent / "res" / temp_sub_dir
+        for temp_sub_dir in self.sub_dir_list["sub_dir_name"]:
+            
+            temp_result_dir = self.data_dir.parent / "res" / self.data_dir.name / temp_sub_dir
 
             if not temp_result_dir.exists():
                 temp_result_dir.mkdir(parents=True)
@@ -108,10 +137,9 @@ class DataFormatter:
 
     def _create_temp_dir(self):
         
-        for sub_dir in self.sub_dir_list:
+        for temp_sub_dir in self.sub_dir_list:
                 
-            temp_sub_dir = sub_dir.relative_to(self.data_dir.parent)
-            temp_temp_dir = self.data_dir.parent / "tmp" / temp_sub_dir
+            temp_temp_dir = self.data_dir.parent / "tmp" / self.data_dir.name / temp_sub_dir
 
             if not temp_temp_dir.exists():
                 temp_temp_dir.mkdir(parents=True)
@@ -120,50 +148,29 @@ class DataFormatter:
     def _load_files(self):
         
         self.log_file_data = self._load_files_log()
-        print("-" * 20)
         print("Log files are loaded")
         
         self.t3w_file_data = self._load_files_t3w()
-        print("-" * 20)
         print("T3W files are loaded")
+
+        print("-" * 40) 
     
     
     # load and store the instance of LogHandler
     def _load_files_log(self):
+
+        for i, log_file_path in enumerate(self.log_file_list["file_path"]):
+            
+            self.log_file_list.loc[i, "data"] = LogHandler(log_file_path)
         
-        temp_log_file_data = []
-        
-        for i, log_files in enumerate(self.log_file_list):
-            
-            temp_log_file_data_each_dir = []
-            
-            for j, log_file in enumerate(log_files["file_path"]):
-                
-                temp_log_file_data_each = LogHandler(log_file, time_zone=self.time_zone)
-                temp_log_file_data_each_dir.append(temp_log_file_data_each)
-            
-            temp_log_file_data.append(temp_log_file_data_each_dir)
-            
-        return temp_log_file_data
-    
-        
+    # load and store the instance of T3WHandler        
     def _load_files_t3w(self):
         
-        temp_t3w_file_data = []
-        
-        for i, t3w_files in enumerate(self.t3w_file_list):
-            
-            temp_t3w_file_data_each_dir = []
-            
-            for j, t3w_file in enumerate(t3w_files["file_path"]):
-                
-                temp_t3w_file_data_each = T3WHandler(t3w_file)
-                temp_t3w_file_data_each_dir.append(temp_t3w_file_data_each)
-            
-            temp_t3w_file_data.append(temp_t3w_file_data_each_dir)
-        
-        return temp_t3w_file_data
+        for i, t3w_file_path in enumerate(self.t3w_file_list["file_path"]):
+
+            self.t3w_file_list.loc[i, "data"] = T3WHandler(t3w_file_path)
     
+    # ONLY FOR DEBUGGING and OUTDATED
     # print lat and long in t3w files
     # this is for checking the data
     # the latitude and longitude in t3w files are not recommended to use
@@ -184,90 +191,93 @@ class DataFormatter:
     # 1. the subdirectory index of the t3w file
     # 2. the index of the log file which is matched with the t3w file
     # 3. the group number of the t3w file
-    
+
     def _match_files(self):
+
+        self.t3w_file_list["match_log_index"] = -1
+        self.t3w_file_list["group_number"] = -1
+
+        temp_group_number = 0
+
+        for i in range(len(self.t3w_file_list)):
+
+            temp_t3w_file_data = self.t3w_file_list.loc[i, "data"]
+
+            # set group number
+            # there are two ways to get the start time of the t3w file
+            # 1. use the start datetime in the header of the t3w file
+            # 2. use the start datetime of the stem of the t3w file
+            # the second way is recommended because we have no way to process non-existing files 
+            # but both are implemented here
+            # the second way is higher priority than the first way
+            # TODO: time_zone of start_datetime is hard-coded
+
+            # 1. use the start datetime in the header of the t3w file
+            temp_start_datetime_from_t3w = temp_t3w_file_data.header["start_datetime_this_file"]
+            temp_start_datetime_from_t3w = dt.datetime.strptime(temp_start_datetime_from_t3w, "%Y%m%d%H%M%S%f")
+            temp_start_datetime_from_t3w = temp_start_datetime_from_t3w.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+            temp_start_datetime_first_file_from_t3w = temp_t3w_file_data.header["start_datetime_first_file"]
+            temp_start_datetime_first_file_from_t3w = dt.datetime.strptime(temp_start_datetime_first_file_from_t3w,
+                                                                                "%Y%m%d%H%M%S%f")
+            temp_start_datetime_first_file_from_t3w = temp_start_datetime_first_file_from_t3w.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+            temp_sequnce_number = temp_t3w_file_data.header["sequence_number"]
+
+            # 2. use the start datetime of the stem of the t3w file
+            temp_start_datetime_from_t3w = self.t3w_file_list.loc[i, "stem"]
+            temp_start_datetime_from_t3w = dt.datetime.strptime(temp_start_datetime_from_t3w[:-4],
+                                                                "%Y%m%d%H%M%S")
+            temp_start_datetime_from_t3w = temp_start_datetime_from_t3w.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+            temp_recording_duration_from_t3w = temp_t3w_file_data.header["recording_duration"]
+            temp_recording_duration_from_t3w = dt.timedelta(seconds=temp_recording_duration_from_t3w)
+            temp_end_datetime_from_t3w = temp_start_datetime_from_t3w + temp_recording_duration_from_t3w
+
+            # match the group number
+            if i == 0:
+                self.t3w_file_list.loc[i, "group_number"] = temp_group_number
+            else:
+
+                temp_t3w_file_stem_prev = self.t3w_file_list.loc[i-1, "file_path"].stem
+                temp_t3w_file_datetime_prev = dt.datetime.strptime(temp_t3w_file_stem_prev[:-4], "%Y%m%d%H%M%S")
+                temp_t3w_file_datetime_prev = temp_t3w_file_datetime_prev.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
+                temp_recording_duration_prev = self.t3w_file_list.loc[i-1, "data"].header["recording_duration"]
+                temp_recording_duration_prev = dt.timedelta(seconds=temp_recording_duration_prev)
+
+                if (temp_start_datetime_from_t3w - temp_t3w_file_datetime_prev - temp_recording_duration_prev).total_seconds() != 0:
+                    temp_group_number += 1
+
+                # check by using temp_sequnce_number
+                # if the group number is different from the previous one
+                # the sequence number should be 0
+                # otherwise, there is a/some missing files in the directory
+                if self.t3w_file_list.loc[i, "group_number"] != self.t3w_file_list.loc[i-1, "group_number"]:
+                    if temp_sequnce_number != 0:
+                        warnings.warn(f"\nThere may be missing files before {self.t3w_file_list.loc[i, 'file_path']}")
+                # the opposite case is not possible
+
+                self.t3w_file_list.loc[i, "group_number"] = temp_group_number
+            
+            # set the index of the log file which is matched with the t3w file
+            for j, log_file_path in enumerate(self.log_file_list["file_path"]):
+                
+                temp_log_file_data = self.log_file_list.loc[j, "data"]
+                temp_start_datetime_from_log = temp_log_file_data.stats["start_time"]
+                temp_end_datetime_from_log = temp_log_file_data.stats["end_time"]
+                
+                if temp_start_datetime_from_log <= temp_end_datetime_from_t3w \
+                    and temp_start_datetime_from_t3w <= temp_end_datetime_from_log \
+                    and self.t3w_file_list.loc[i, "sub_dir_index"] == self.log_file_list.loc[j, "sub_dir_index"]:
+                    
+                    self.t3w_file_list.loc[i, "match_log_index"] = j
+                    break
         
-        for i, t3w_files in enumerate(self.t3w_file_list):
-            temp_group_number = 0
-            
-            t3w_files["dir_index"] = -1
-            t3w_files["match_log_index"] = -1
-            t3w_files["group_number"] = -1
-            
-            self.log_file_list[i]["dir_index"] = -1
-            
-            for j, t3w_file in enumerate(t3w_files["file_path"]):
-                
-                t3w_files.loc[j, "dir_index"] = i
-                temp_t3w_file_data = self.t3w_file_data[i][j]
-                
-                # set group number
-                # there are two ways to get the start time of the t3w file
-                # 1. use the start datetime in the header of the t3w file
-                # 2. use the start datetime of the stem of the t3w file
-                # the second way is recommended because we have no way to process non-existing files 
-                # but both are implemented here
-                # the second way is higher priority than the first way
-                # TODO: time_zone of start_datetime is hard-coded
-                
-                # 1. use the start datetime in the header of the t3w file
-                temp_start_datetime_from_header = temp_t3w_file_data.header["start_datetime_this_file"]
-                temp_start_datetime_from_header = dt.datetime.strptime(temp_start_datetime_from_header, "%Y%m%d%H%M%S%f")
-                temp_start_datetime_from_header = temp_start_datetime_from_header.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-                temp_start_datetime_first_file_from_header = temp_t3w_file_data.header["start_datetime_first_file"]
-                temp_start_datetime_first_file_from_header = dt.datetime.strptime(temp_start_datetime_first_file_from_header, 
-                                                                                  "%Y%m%d%H%M%S%f")
-                temp_start_datetime_first_file_from_header = temp_start_datetime_first_file_from_header.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-                temp_sequnce_number = temp_t3w_file_data.header["sequence_number"]
-                
-                # 2. use the start datetime of the stem of the t3w file
-                temp_start_datetime_from_stem = t3w_file.stem
-                temp_start_datetime_from_stem = dt.datetime.strptime(temp_start_datetime_from_stem[:-4], 
-                                                                     "%Y%m%d%H%M%S")
-                temp_start_datetime_from_stem = temp_start_datetime_from_stem.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-                temp_recording_duration_from_header = temp_t3w_file_data.header["recording_duration"]
-                temp_recording_duration_from_header = dt.timedelta(seconds=temp_recording_duration_from_header)
-                temp_end_datetime_from_stem = temp_start_datetime_from_stem + temp_recording_duration_from_header
-                
-                if j == 0:
-                    t3w_files.loc[j, "group_number"] = temp_group_number
-                else:
-                    temp_t3w_file_stem_prev_from_stem = t3w_files.iloc[j-1]["file_path"].stem
-                    temp_t3w_file_datetime_prev_from_stem = dt.datetime.strptime(temp_t3w_file_stem_prev_from_stem[:-4], "%Y%m%d%H%M%S")
-                    temp_t3w_file_datetime_prev_from_stem = temp_t3w_file_datetime_prev_from_stem.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-                    temp_recording_duration_prev_from_header = self.t3w_file_data[i][j-1].header["recording_duration"]
-                    temp_recording_duration_prev_from_header = dt.timedelta(seconds=temp_recording_duration_prev_from_header)
-                    
-                    if (temp_start_datetime_from_stem - temp_t3w_file_datetime_prev_from_stem - temp_recording_duration_prev_from_header).total_seconds() != 0:
-                        temp_group_number += 1
-                    
-                    t3w_files.loc[j, "group_number"] = temp_group_number
-                    
-                    # check by using temp_sequnce_number
-                    # if the group number is different from the previous one
-                    # the sequence number should be 0
-                    # otherwise, there is a/some missing files in the directory
-                    if t3w_files.loc[j, "group_number"] != t3w_files.loc[j-1, "group_number"]:
-                        if temp_sequnce_number != 0:
-                            warnings.warn(f"\nThere may be missing files before {t3w_file}")
-                    # the opposite case is not possible
-                
-                # set the index of the log file which is matched with the t3w file
-                # TODO: 3-times nested for loop
-                
-                for k, log_file in enumerate(self.log_file_list[i]["file_path"]):
-                    
-                    self.log_file_list[i].loc[k, "dir_index"] = i
-                    
-                    temp_log_file_data = self.log_file_data[i][k]
-                    temp_start_datetime_from_log = temp_log_file_data.stats["start_time"]
-                    temp_end_datetime_from_log = temp_log_file_data.stats["end_time"]
-                    
-                    if temp_start_datetime_from_log <= temp_end_datetime_from_stem and temp_start_datetime_from_stem <= temp_end_datetime_from_log:
-                        t3w_files.loc[j, "match_log_index"] = k
-                        break
-            
-        
+        self._export_file_list()
+    
+    def _export_file_list(self, not_update_columns=["file_path", "group_number"]):
+
+        print(self.t3w_file_list)
+        print(self.log_file_list)
+
+        pass
 
     def _convert_t3w_to_miniseed(self):
 
