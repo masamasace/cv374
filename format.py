@@ -39,6 +39,9 @@ class DataFormatter:
         self.data_dir = Path(data_dir).resolve()
         self.time_zone = time_zone
 
+        self.export_col_t3w = ["rel_file_path", "sub_dir_index", "sub_dir_name", "stem", "group_number", "match_log_index"]
+        self.export_col_log = ["rel_file_path", "sub_dir_index", "sub_dir_name", "stem"]
+
         print("-" * 40)
         print(f"Data directory: {self.data_dir}")
 
@@ -100,6 +103,10 @@ class DataFormatter:
         self.t3w_file_list["sub_dir_name"] = self.t3w_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
         self.log_file_list["sub_dir_name"] = self.log_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
 
+        # create relative path
+        self.t3w_file_list["rel_file_path"] = self.t3w_file_list["file_path"].apply(lambda x: x.relative_to(self.data_dir))
+        self.log_file_list["rel_file_path"] = self.log_file_list["file_path"].apply(lambda x: x.relative_to(self.data_dir))
+
         # create sub_dir_name and sub_dir_index dataframes
         temp_sub_dir_name = np.concatenate([self.t3w_file_list["sub_dir_name"].unique(), self.log_file_list["sub_dir_name"].unique()])
         temp_sub_dir_name
@@ -133,6 +140,8 @@ class DataFormatter:
 
             if not temp_result_dir.exists():
                 temp_result_dir.mkdir(parents=True)
+        
+        self.res_root_dir = self.data_dir.parent / "res" 
     
 
     def _create_temp_dir(self):
@@ -143,6 +152,8 @@ class DataFormatter:
 
             if not temp_temp_dir.exists():
                 temp_temp_dir.mkdir(parents=True)
+        
+        self.tmp_root_dir = self.data_dir.parent / "tmp"
     
     # load and store the instance of T3WHandler and LogHandler
     def _load_files(self):
@@ -169,22 +180,6 @@ class DataFormatter:
         for i, t3w_file_path in enumerate(self.t3w_file_list["file_path"]):
 
             self.t3w_file_list.loc[i, "data"] = T3WHandler(t3w_file_path)
-    
-    # ONLY FOR DEBUGGING and OUTDATED
-    # print lat and long in t3w files
-    # this is for checking the data
-    # the latitude and longitude in t3w files are not recommended to use
-    # because they are not accurate
-    def _print_lat_long_from_t3w(self):
-        
-        for i, t3w_files in enumerate(self.t3w_file_list):
-            for j, t3w_file in enumerate(t3w_files["file_path"]):
-                
-                temp_t3w_file_data = self.t3w_file_data[i][j]
-                
-                print(t3w_file.stem, end=": ")
-                print("latitude: ", temp_t3w_file_data.header["latitude"], end=", ")
-                print("longitude: ", temp_t3w_file_data.header["longitude"])
     
     # match the t3w and log files
     # make three labels to the t3w files
@@ -272,12 +267,56 @@ class DataFormatter:
         
         self._export_file_list()
     
-    def _export_file_list(self, not_update_columns=["file_path", "group_number"]):
+    def _export_file_list(self, not_update_columns=["group_number"]):
+
+        temp_t3w_file_list, temp_log_file_list = self._import_file_list()
+
+        if temp_t3w_file_list is None:
+            temp_t3w_file_list = self.t3w_file_list.copy()
+        else:
+            for temp_col in self.export_col_t3w:
+                if temp_col not in not_update_columns:
+                    temp_t3w_file_list[temp_col] = self.t3w_file_list[temp_col]
+                
+            temp_t3w_file_list["file_path"] = temp_t3w_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
+
+        self.t3w_file_list = temp_t3w_file_list.copy()
+        temp_t3w_file_list = temp_t3w_file_list[self.export_col_t3w]
+        temp_t3w_file_list.to_csv(self.res_root_dir / "t3w_file_list.csv", index=False)
+
+        if temp_log_file_list is None:
+            temp_log_file_list = self.log_file_list.copy()
+        else:
+            for temp_col in self.export_col_log:
+                temp_log_file_list[temp_col] = self.log_file_list[temp_col]
+            
+            temp_log_file_list["file_path"] = temp_log_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
+        
+        self.log_file_list = temp_log_file_list.copy()
+        temp_log_file_list = temp_log_file_list[self.export_col_log]
+        temp_log_file_list.to_csv(self.res_root_dir / "log_file_list.csv", index=False)
 
         print(self.t3w_file_list)
-        print(self.log_file_list)
+        print(temp_t3w_file_list)
 
-        pass
+    def _import_file_list(self):
+
+        temp_t3w_file_list_path = self.res_root_dir / "t3w_file_list.csv"
+        temp_log_file_list_path = self.res_root_dir / "log_file_list.csv"
+
+        if temp_t3w_file_list_path.exists():
+            temp_t3w_file_list = pd.read_csv(temp_t3w_file_list_path)
+        else:
+            temp_t3w_file_list = None
+            warnings.warn("t3w_file_list.csv does not exist")
+
+        if temp_log_file_list_path.exists():
+            temp_log_file_list = pd.read_csv(temp_log_file_list_path)
+        else:
+            temp_log_file_list = None
+            warnings.warn("log_file_list.csv does not exist")
+        
+        return (temp_t3w_file_list, temp_log_file_list)
 
     def _convert_t3w_to_miniseed(self):
 
