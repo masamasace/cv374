@@ -3,7 +3,6 @@ import pandas as pd
 import datetime as dt
 from .t3w import T3WHandler
 from .log import LogHandler
-import sqlite3
 import warnings
 import numpy as np
 
@@ -49,9 +48,9 @@ class DataFormatter:
         self._create_result_root_dir()
 
         self._create_file_list()
-        
-        self._create_result_dir()
-        self._create_temp_dir()
+
+        self._create_temp_sub_dir()
+        self._create_result_sub_dir()
         
         self._load_files()
         
@@ -113,6 +112,7 @@ class DataFormatter:
         
         else:
             self.log_file_list, self.t3w_file_list = self._create_file_list_from_scratch()
+        
 
     def _import_file_list(self):
 
@@ -120,13 +120,15 @@ class DataFormatter:
         temp_t3w_file_list = pd.read_csv(self.t3w_file_list_path)
 
         # if any of the files does not exist, update the file list
-        if not temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+        if not "file_path" in temp_log_file_list.columns or \
+            temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
             temp_log_file_list["file_path"] = temp_log_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
         
             if not temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
                 raise FileNotFoundError("Some of the log files do not exist")
         
-        if not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+        if not "file_path" in temp_t3w_file_list.columns or \
+            not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
             temp_t3w_file_list["file_path"] = temp_t3w_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
         
             if not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
@@ -134,76 +136,67 @@ class DataFormatter:
 
         return (temp_log_file_list, temp_t3w_file_list)
         
-
+    def _create_file_list_from_scratch(self):
         
         # list t3w_file_list and log_file_list
-        self.t3w_file_list = list(self.data_dir.glob("**/*.t3w"))
-        self.log_file_list = list(self.data_dir.glob("**/*.log"))
+        temp_t3w_file_list = list(self.data_dir.glob("**/*.t3w"))
+        temp_log_file_list = list(self.data_dir.glob("**/*.log"))
 
         # sort the files
-        self.t3w_file_list = pd.DataFrame(self.t3w_file_list, columns=["file_path"])
-        self.log_file_list = pd.DataFrame(self.log_file_list, columns=["file_path"])
+        temp_t3w_file_list = pd.DataFrame(temp_t3w_file_list, columns=["file_path"])
+        temp_log_file_list = pd.DataFrame(temp_log_file_list, columns=["file_path"])
 
         # add stem to the dataframes
-        self.t3w_file_list["stem"] = self.t3w_file_list["file_path"].apply(lambda x: x.stem)
-        self.log_file_list["stem"] = self.log_file_list["file_path"].apply(lambda x: x.stem)
+        temp_t3w_file_list["stem"] = temp_t3w_file_list["file_path"].apply(lambda x: x.stem)
+        temp_log_file_list["stem"] = temp_log_file_list["file_path"].apply(lambda x: x.stem)
 
         # create sub_dir_index column
-        self.t3w_file_list["sub_dir_name"] = self.t3w_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
-        self.log_file_list["sub_dir_name"] = self.log_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
+        temp_t3w_file_list["sub_dir_name"] = temp_t3w_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
+        temp_log_file_list["sub_dir_name"] = temp_log_file_list["file_path"].apply(lambda x: x.parent.relative_to(self.data_dir))
 
         # create relative path
-        self.t3w_file_list["rel_file_path"] = self.t3w_file_list["file_path"].apply(lambda x: x.relative_to(self.data_dir))
-        self.log_file_list["rel_file_path"] = self.log_file_list["file_path"].apply(lambda x: x.relative_to(self.data_dir))
+        temp_t3w_file_list["rel_file_path"] = temp_t3w_file_list["file_path"].apply(lambda x: x.relative_to(self.data_dir))
+        temp_log_file_list["rel_file_path"] = temp_log_file_list["file_path"].apply(lambda x: x.relative_to(self.data_dir))
 
         # create sub_dir_name and sub_dir_index dataframes
-        temp_sub_dir_name = np.concatenate([self.t3w_file_list["sub_dir_name"].unique(), self.log_file_list["sub_dir_name"].unique()])
-        temp_sub_dir_name
+        temp_sub_dir_name = np.concatenate([temp_t3w_file_list["sub_dir_name"].unique(), temp_log_file_list["sub_dir_name"].unique()])
         temp_sub_dir_name = set(temp_sub_dir_name)
         self.sub_dir_list = pd.DataFrame(temp_sub_dir_name, columns=["sub_dir_name"])
         self.sub_dir_list["sub_dir_index"] = self.sub_dir_list.index
 
         # rcreate sub_dir_index column in t3w_file_list and log_file_list
-        self.t3w_file_list["sub_dir_index"] = self.t3w_file_list["sub_dir_name"].apply(lambda x: self.sub_dir_list[self.sub_dir_list["sub_dir_name"] == x].index[0])
-        self.log_file_list["sub_dir_index"] = self.log_file_list["sub_dir_name"].apply(lambda x: self.sub_dir_list[self.sub_dir_list["sub_dir_name"] == x].index[0])
+        temp_t3w_file_list["sub_dir_index"] = temp_t3w_file_list["sub_dir_name"].apply(lambda x: self.sub_dir_list[self.sub_dir_list["sub_dir_name"] == x].index[0])
+        temp_log_file_list["sub_dir_index"] = temp_log_file_list["sub_dir_name"].apply(lambda x: self.sub_dir_list[self.sub_dir_list["sub_dir_name"] == x].index[0])
 
         # sort the files by sub_dir_index and stem
-        self.t3w_file_list = self.t3w_file_list.sort_values(by=["sub_dir_index", "stem"])
-        self.log_file_list = self.log_file_list.sort_values(by=["sub_dir_index", "stem"])
+        temp_t3w_file_list = temp_t3w_file_list.sort_values(by=["sub_dir_index", "stem"])
+        temp_log_file_list = temp_log_file_list.sort_values(by=["sub_dir_index", "stem"])
         
         # reset the index
-        self.t3w_file_list = self.t3w_file_list.reset_index(drop=True)
-        self.log_file_list = self.log_file_list.reset_index(drop=True)
+        temp_t3w_file_list = temp_t3w_file_list.reset_index(drop=True)
+        temp_log_file_list = temp_log_file_list.reset_index(drop=True)
 
-        # print result
-        print(f"Number of t3w files: {len(self.t3w_file_list)}")
-        print(f"Number of log files: {len(self.log_file_list)}")
-        print(f"Number of subdirectories: {len(self.sub_dir_list)}")
-        print("-" * 40)
+        return (temp_log_file_list, temp_t3w_file_list)
 
-    def _create_result_dir(self):
 
-        for temp_sub_dir in self.sub_dir_list["sub_dir_name"]:
-            
-            temp_result_dir = self.data_dir.parent / "res" / self.data_dir.name / temp_sub_dir
-
-            if not temp_result_dir.exists():
-                temp_result_dir.mkdir(parents=True)
-        
-        self.res_root_dir = self.data_dir.parent / "res" 
-    
-
-    def _create_temp_dir(self):
+    def _create_temp_sub_dir(self):
         
         for temp_sub_dir in self.sub_dir_list:
                 
-            temp_temp_dir = self.data_dir.parent / "tmp" / self.data_dir.name / temp_sub_dir
+            temp_temp_dir = self.tmp_root_dir / self.data_dir.name / temp_sub_dir
 
             if not temp_temp_dir.exists():
                 temp_temp_dir.mkdir(parents=True)
         
-        self.tmp_root_dir = self.data_dir.parent / "tmp"
-    
+    def _create_result_sub_dir(self):
+
+        for temp_sub_dir in self.sub_dir_list["sub_dir_name"]:
+            
+            temp_result_dir = self.res_root_dir / self.data_dir.name / temp_sub_dir
+
+            if not temp_result_dir.exists():
+                temp_result_dir.mkdir(parents=True)
+        
     # load and store the instance of T3WHandler and LogHandler
     def _load_files(self):
         
@@ -348,24 +341,24 @@ class DataFormatter:
         print(self.t3w_file_list)
         print(temp_t3w_file_list)
 
-    def _import_file_list(self):
+    # def _import_file_list(self):
 
-        temp_t3w_file_list_path = self.res_root_dir / "t3w_file_list.csv"
-        temp_log_file_list_path = self.res_root_dir / "log_file_list.csv"
+    #     temp_t3w_file_list_path = self.res_root_dir / "t3w_file_list.csv"
+    #     temp_log_file_list_path = self.res_root_dir / "log_file_list.csv"
 
-        if temp_t3w_file_list_path.exists():
-            temp_t3w_file_list = pd.read_csv(temp_t3w_file_list_path)
-        else:
-            temp_t3w_file_list = None
-            warnings.warn("t3w_file_list.csv does not exist")
+    #     if temp_t3w_file_list_path.exists():
+    #         temp_t3w_file_list = pd.read_csv(temp_t3w_file_list_path)
+    #     else:
+    #         temp_t3w_file_list = None
+    #         warnings.warn("t3w_file_list.csv does not exist")
 
-        if temp_log_file_list_path.exists():
-            temp_log_file_list = pd.read_csv(temp_log_file_list_path)
-        else:
-            temp_log_file_list = None
-            warnings.warn("log_file_list.csv does not exist")
+    #     if temp_log_file_list_path.exists():
+    #         temp_log_file_list = pd.read_csv(temp_log_file_list_path)
+    #     else:
+    #         temp_log_file_list = None
+    #         warnings.warn("log_file_list.csv does not exist")
         
-        return (temp_t3w_file_list, temp_log_file_list)
+    #     return (temp_t3w_file_list, temp_log_file_list)
 
     def _convert_t3w_to_miniseed(self):
 
