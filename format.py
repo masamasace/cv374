@@ -5,9 +5,26 @@ from .t3w import T3WHandler
 from .log import LogHandler
 import warnings
 import numpy as np
+import matplotlib.pyplot as plt
+
+plt.rcParams["font.family"] = "Arial"
+plt.rcParams["mathtext.fontset"] = "dejavuserif" 
+plt.rcParams["legend.fancybox"] = False
+plt.rcParams["legend.shadow"] = True
+plt.rcParams["legend.framealpha"] = 1
+plt.rcParams["legend.edgecolor"] = "k"
+
+def setup_figure(num_row=1, num_col=1, width=5, height=4, left=0.125, right=0.9, hspace=0.2, wspace=0.2):
+
+    fig, axes = plt.subplots(num_row, num_col, figsize=(width, height), squeeze=False)   
+    fig.subplots_adjust(left=left, right=right, hspace=hspace, wspace=wspace)
+    return (fig, axes)
+
 
 class DataFormatter:
-    def __init__(self, data_dir: Path, time_zone: str = "Japan"):
+    def __init__(self, data_dir: Path, time_zone: str = "Japan", 
+                 keep_original_col=["group_index", "match_log_index", "latitude", 
+                                     "longitude", "elevation", "geoid_height"]):
         """
         Parameters
         ----------
@@ -38,8 +55,10 @@ class DataFormatter:
         self.data_dir = Path(data_dir).resolve()
         self.time_zone = time_zone
 
-        self.export_col_t3w = ["file_path", "rel_file_path", "sub_dir_index", "sub_dir_name", "stem", "group_index", "match_log_index"]
+        self.export_col_t3w = ["file_path", "rel_file_path", "sub_dir_index", "sub_dir_name", "stem", 
+                               "group_index", "match_log_index", "latitude", "longitude", "elevation", "geoid_height"]
         self.export_col_log = ["file_path", "rel_file_path", "sub_dir_index", "sub_dir_name", "stem"]
+        self.keep_original_col = keep_original_col
 
         print("-" * 40)
         print(f"Data directory: {self.data_dir}")
@@ -54,8 +73,6 @@ class DataFormatter:
         
         self._load_files()
         
-        self._match_files()
-        
         # self._check_integrity()
         ## check the integrity of the data
         ## sometimes the t3w files are not continuous or overlapped
@@ -68,22 +85,18 @@ class DataFormatter:
         ##    -> done by the _check_integrity()    
         ## 2. how to store the data (again create new variables?)
         
-        # self._marge_log_files()
-        ## marge the information of log files to self.t3w_file_list
-        ## especially, latitude, longitude, and elevation
-        ## this variable can be summary of the class
-        ## self._marge_log_files()
-        ##    self._read_t3w_file_csv() : read the csv file including manually added latitude, longitude, and elevation
-        ##                                if the csv file does not exist, create the csv file
-        ##                                if the csv file exists, read the csv file and verify the consistency with the self.t3w_file_list
-        ##    self._add_lat_long_elevation() : add latitude, longitude, and elevation to self.t3w_file_list
-        ##                                if the csv file exists, just check the consistency with the latitude, longitude, and elevation                                  
-        ##    self._write_t3w_file_csv() : write the csv file including manually added latitude, longitude, and elevation
-        
+        # if both of ["group_index", "match_log_index"] are in keep_original_col, 
+        # the following code will not update the columns
+        if not all([col in self.keep_original_col for col in ["group_index", "match_log_index"]]):
+            self._match_files()
+    
+        if not all([col in self.keep_original_col for col in ["latitude", "longitude", "elevation", "geoid_height"]]):    
+            self._marge_log_files()
+
+
         # self._convert_t3w_to_miniseed()
         # self._create_stationXML()
         
-        # self.compute_HVSR()
         ## compute HVSR from the data with use of https://github.com/jpvantassel/hvsrpy
     
     def _create_result_root_dir(self):
@@ -113,7 +126,6 @@ class DataFormatter:
         else:
             self.log_file_list, self.t3w_file_list, self.sub_dir_list = self._create_file_list_from_scratch()
         
-        print(self.t3w_file_list)
 
     def _import_file_list(self):
 
@@ -126,23 +138,28 @@ class DataFormatter:
 
 
         # if any of the files does not exist, update the file list
-        if not "file_path" in temp_log_file_list.columns or \
-            temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+        if not "file_path" in temp_log_file_list.columns:
             temp_log_file_list["file_path"] = temp_log_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
-        
-            if not temp_log_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
-                raise FileNotFoundError("Some of the log files do not exist")
-            
+        else:
+            for i, temp_file_path in enumerate(temp_log_file_list["file_path"]):
+                if not Path(temp_file_path).exists():
+                    temp_log_file_list.loc[i, "file_path"] = self.data_dir / temp_log_file_list.loc[i, "rel_file_path"]
+                    
         temp_log_file_list["file_path"] = temp_log_file_list["file_path"].apply(lambda x: Path(x))
+        if not temp_log_file_list["file_path"].apply(lambda x: Path(x)).all():
+            raise FileNotFoundError("Some of the log files do not exist")        
+            
         
-        if not "file_path" in temp_t3w_file_list.columns or \
-            not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
+        if not "file_path" in temp_t3w_file_list.columns:
             temp_t3w_file_list["file_path"] = temp_t3w_file_list["rel_file_path"].apply(lambda x: self.data_dir / x)
-        
-            if not temp_t3w_file_list["file_path"].apply(lambda x: Path(x).exists()).all():
-                raise FileNotFoundError("Some of the t3w files do not exist")
+        else:
+            for i, temp_file_path in enumerate(temp_t3w_file_list["file_path"]):
+                if not Path(temp_file_path).exists():
+                    temp_t3w_file_list.loc[i, "file_path"] = self.data_dir / temp_t3w_file_list.loc[i, "rel_file_path"]
         
         temp_t3w_file_list["file_path"] = temp_t3w_file_list["file_path"].apply(lambda x: Path(x))
+        if not temp_t3w_file_list["file_path"].apply(lambda x: Path(x)).all():
+            raise FileNotFoundError("Some of the t3w files do not exist")
 
         # create sub_dir_index column
         temp_sub_dir_list = set(np.concatenate([temp_t3w_file_list["sub_dir_name"].unique(), temp_log_file_list["sub_dir_name"].unique()]))
@@ -199,7 +216,7 @@ class DataFormatter:
 
     def _create_temp_sub_dir(self):
         
-        for temp_sub_dir in self.sub_dir_list:
+        for temp_sub_dir in self.sub_dir_list["sub_dir_name"]:
                 
             temp_temp_dir = self.tmp_root_dir / self.data_dir.name / temp_sub_dir
 
@@ -231,7 +248,7 @@ class DataFormatter:
     
     # load and store the instance of LogHandler
     def _load_files_log(self):
-
+        
         for i, log_file_path in enumerate(self.log_file_list["file_path"]):
             
             self.log_file_list.loc[i, "data"] = LogHandler(log_file_path)
@@ -329,8 +346,6 @@ class DataFormatter:
                     self.t3w_file_list.loc[i, "match_log_index"] = j
                     break
         
-        self._export_file_list()
-    
     def _export_file_list(self, not_update_columns=["group_index"]):
         
         temp_t3w_file_list = self.t3w_file_list.copy()
@@ -341,6 +356,129 @@ class DataFormatter:
         temp_log_file_list = temp_log_file_list[self.export_col_log]
         temp_log_file_list.to_csv(self.res_root_dir / "log_file_list.csv", index=False)
 
-        print(self.t3w_file_list)
-        print(temp_t3w_file_list)
 
+    def _check_data_conversion(self, ref_dir=None):
+        """
+        check data conversion by Win32Handler
+        Win32Handler.stream is obspy.core.stream.Stream object
+        ref_dir contains the reference data converted by PWave32 software
+        file name is like 20231018001000.200.dbl.01.asc
+            the last 01 is the channel number (01, 02, 03)
+        the header of the file is like the following:
+            > Station Name        to-soku win
+            > Trigger Time        2023/10/18 00:10:00.00
+            > Delay Time(s)       0.000
+            > Last Corrected Time 2023/10/18 00:06:30
+            > Sampling Freq(Hz)   100
+            > Duration Time(s)    300.000
+            > Channel Name        CH1
+            > Unit of Data        cm/s
+            > 0.000417
+            > 0.000242
+            > ...
+        """
+        
+        temp_ref_dir = Path(ref_dir).resolve()
+        
+        for i in range(len(self.t3w_file_list)):
+            
+            temp_t3w_data = self.t3w_file_list.loc[i, "data"]
+            temp_t3w_path = self.t3w_file_list.loc[i, "file_path"]
+            temp_t3w_stem = temp_t3w_path.stem
+            
+            print(f"Checking the data conversion of {temp_t3w_stem}...", end=" ")
+            
+            temp_asc_list = list(temp_ref_dir.glob(f"**/*{temp_t3w_stem}*.asc"))
+            
+            if len(temp_asc_list) == 0:
+                print("No reference data found")
+                continue
+            
+            for i in range(len(temp_asc_list)):
+                
+                temp_asc_channel = int(temp_asc_list[i].stem[-2:]) - 1
+                temp_asc_data = pd.read_csv(temp_asc_list[i], skiprows=8, header=None)
+                
+                temp_t3w_data_channel = temp_t3w_data.stream[temp_asc_channel].data
+                temp_t3w_data_calib = temp_t3w_data.calib_coeff
+                temp_t3w_data_channel_scaled = temp_t3w_data_channel * temp_t3w_data_calib
+                
+                temp_diff = temp_t3w_data_channel_scaled - temp_asc_data.values.flatten()
+                
+                if np.allclose(temp_diff, 0, atol=1e-6):
+                    print("Ch.", temp_asc_channel + 1, "OK", end=" ")
+                else:
+                    print()
+                    print(f"Checking the data conversion of {temp_t3w_stem}... ", "Ch.", temp_asc_channel + 1, "NG")
+                    
+                    temp_diff_index = np.where(np.abs(temp_diff) > 1e-6)[0]
+                    print("indices: ", temp_diff_index)
+                    print("ref_data_int: ",temp_asc_data.values.flatten()[temp_diff_index])
+                    temp_t3w_data_reread = T3WHandler(temp_t3w_path, flag_debug=True, 
+                                                      debug_params=[temp_asc_channel, temp_diff_index[0], temp_diff_index[-1]])
+                    
+                if i == len(temp_asc_list) - 1:
+                    print()
+        
+        
+    def _check_integrity(self):
+
+        pass
+    
+    def _marge_log_files(self):
+        
+        for i in range(len(self.t3w_file_list)):
+            
+            match_log_index = self.t3w_file_list.loc[i, "match_log_index"]
+            if match_log_index == -1:
+                continue
+            temp_log_file_data = self.log_file_list.loc[match_log_index, "data"]
+            
+            self.t3w_file_list.loc[i, "latitude"] = temp_log_file_data.stats["latitude"]
+            self.t3w_file_list.loc[i, "longitude"] = temp_log_file_data.stats["longitude"]
+            self.t3w_file_list.loc[i, "elevation"] = temp_log_file_data.stats["altitude"]
+            self.t3w_file_list.loc[i, "geoid_height"] = temp_log_file_data.stats["geoid_height"]
+
+        self._export_file_list()
+    
+    
+    def _concatenate_t3w_files(self):
+        
+        pass
+    
+    def _export_stationXML(self):
+        
+        pass
+    
+    def export_mseed(self, force_overwrite=False):
+        
+        mseed_file_list = []
+        
+        for i in range(len(self.t3w_file_list)):
+            temp_t3w_data = self.t3w_file_list.loc[i, "data"]
+            temp_mseed_file_path = self.tmp_root_dir / self.data_dir.name / self.t3w_file_list.loc[i, "sub_dir_name"] / (self.t3w_file_list.loc[i, "file_path"].stem + ".mseed")
+            
+            if force_overwrite or not temp_mseed_file_path.exists():
+                temp_t3w_data.stream.write(str(temp_mseed_file_path), format="MSEED")
+            
+            mseed_file_list.append(temp_mseed_file_path)
+            
+        
+        return mseed_file_list
+    
+    def calculate_HVSR(self):
+        
+        # https://github.com/jpvantassel/hvsrpy
+        
+        self.mseed_file_list = self.export_mseed()
+        
+        for mseed_file in self.mseed_file_list:
+            
+            self._calculate_HVSR_base(mseed_file)
+            
+    
+    def _calculate_HVSR_base(self, mseed_file):
+        
+        pass
+    
+    

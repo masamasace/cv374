@@ -1,19 +1,22 @@
 from pathlib import Path
 import struct
 from .win32 import Win32Handler
-import json
 import pandas as pd
 from obspy import Trace, Stream, UTCDateTime
 import datetime as dt
 
 class T3WHandler():
-    def __init__(self, file_path, calib_coeff=2.048 / 2 ** 23):
+    def __init__(self, file_path, calib_coeff=2.048 / 2 ** 23, flag_debug=False,
+                 debug_params=None):
         
         self.file_path = Path(file_path).resolve()
         self.calib_coeff = calib_coeff
+        self.flag_debug = flag_debug
+        self.debug_params = debug_params
         
         # Read the t3w file
         self._read_t3w_file()
+    
     
     def export_header(self, dir_path=None):
         t3w_header = self.header
@@ -22,6 +25,7 @@ class T3WHandler():
             dir_path = self.file_path.parent
             
         raise ValueError("Not implemented yet")
+        
         
     def export_data_csv(self, dir_path=None, time_format="relative"):
         
@@ -47,6 +51,7 @@ class T3WHandler():
         temp_data.to_csv(temp_file_path, index=False)
         
         return temp_file_path
+
 
     def export_data_mseed(self, dir_path=None):
         
@@ -84,6 +89,7 @@ class T3WHandler():
         
         return temp_file_path
         
+        
     def _read_t3w_file(self):
         
         with open(self.file_path, "rb") as f:
@@ -96,15 +102,18 @@ class T3WHandler():
         self.header = self._read_t3w_header(temp_t3w_bin_data_header)
         
         # Read the win32 data
-        self.stream = self._read_win32_data(temp_t3w_bin_data_win32, self.header)
+        self.header_from_win32, self.stream = self._read_win32_data(temp_t3w_bin_data_win32, self.header)
+    
     
     def _read_win32_data(self, t3w_bin_data_win32, t3w_header):
 
-        temp_t3w_win32_data = Win32Handler(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff)
+        temp_t3w_win32_data = Win32Handler(bin_data=t3w_bin_data_win32, calib_coeff=self.calib_coeff, 
+                                           flag_debug=self.flag_debug, debug_params=self.debug_params)
         temp_t3w_win32_data_header = temp_t3w_win32_data.get_header()
         temp_t3w_win32_data_stream = temp_t3w_win32_data.get_stream()
         
-        return temp_t3w_win32_data_stream
+        return (temp_t3w_win32_data_header, temp_t3w_win32_data_stream)
+        
         
     def _read_t3w_header(self, t3w_bin_data_header):
         
