@@ -51,43 +51,6 @@ class T3WHandler():
         temp_data.to_csv(temp_file_path, index=False)
         
         return temp_file_path
-
-
-    def export_data_mseed(self, dir_path=None):
-        
-        if not dir_path:
-            dir_path = self.file_path.parent
-        
-        temp_stream = Stream()
-        
-        # TODO: to be updated to handle obspy stream
-        temp_data = self.stream.get_data_float()
-        
-        for i in range(3):
-            temp_trace = Trace(data=temp_data[:, i])
-            temp_trace.stats.sampling_rate = 1000 / self.header["sampling_time_interval"]
-
-            temp_trace.stats.delta = 1 / temp_trace.stats.sampling_rate
-            temp_trace.stats.calib = self.calib_coeff
-            temp_trace.stats.npts = len(temp_trace.data)
-            temp_trace.stats.network = ""
-
-            temp_trace.stats.location = ""
-            temp_trace.stats.station = ""
-            temp_trace.stats.channel = ""
-            temp_start_datetime = dt.datetime.strptime(self.header["start_datetime_this_file"], 
-                                                       "%Y%m%d%H%M%S%f")
-            temp_start_datetime = temp_start_datetime.astimezone(tz=dt.timezone(dt.timedelta(hours=9)))
-            temp_trace.stats.starttime = UTCDateTime(temp_start_datetime)
-            
-            temp_stream.append(temp_trace)
-        
-        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + ".mseed")
-        temp_stream.write(temp_file_path, format="MSEED")
-        
-        print("Exported to", temp_file_path)
-        
-        return temp_file_path
         
         
     def _read_t3w_file(self):
