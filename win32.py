@@ -139,20 +139,23 @@ class Win32Handler():
         for i in range(self.num_channel):
             # in order to process data in obspy, the dtype should be int32, not int64
             # see obspy.io.mseed.headers.py line 109
-            temp_trace = Trace(data=np.array([temp_data[j]["data"][i]["data"] for j in range(len(temp_data))]).flatten().astype(np.int32))
+            temp_trace = Trace()
+            temp_trace.data = np.array([temp_data[j]["data"][i]["data"] for j in range(len(temp_data))]).flatten().astype(np.int32)
             temp_trace.stats.sampling_rate = 1 / (temp_data[0]["frame_length"] / 1000)
             temp_trace.stats.delta = 1 / temp_trace.stats.sampling_rate
             temp_trace.stats.calib = self.calib_coeff
             temp_trace.stats.npts = len(temp_trace.data)
-            temp_trace.stats.network = ""
-            temp_trace.stats.location = ""
-            temp_trace.stats.station = ""
-            temp_trace.stats.channel = ""
-            temp_trace.stats.starttime = UTCDateTime(temp_start_datetime_dt)
+            if i == 0:
+                temp_trace.stats.channel = "N"
+            elif i == 1:
+                temp_trace.stats.channel = "E"
+            elif i == 2:
+                temp_trace.stats.channel = "Z"
+            temp_trace.stats.starttime = UTCDateTime(datetime.datetime.strptime(temp_data[0]["start_datetime"], "%Y%m%d%H%M%S%f"))
             temp_stream.append(temp_trace)
         
         # prepare header
-        self.header["start_datatime"] = temp_data[0]["start_datetime"]
+        self.header["start_datetime"] = temp_data[0]["start_datetime"]
         self.header["end_datetime"] = temp_data[-1]["start_datetime"]
         self.header["sampling_rate"] = 1 / (temp_data[0]["frame_length"] / 1000)
         self.header["calib_coeff"] = self.calib_coeff

@@ -451,45 +451,40 @@ class DataFormatter:
         
         pass
     
-    def export_sac(self, force_overwrite=True):
+    def export_mseed(self, force_overwrite=False):
         
-        sac_file_list = []
+        mseed_file_list = []
         
         for i in range(len(self.t3w_file_list)):
             temp_t3w_data = self.t3w_file_list.loc[i, "data"]
-            temp_sac_file_path = self.tmp_root_dir / self.data_dir.name / self.t3w_file_list.loc[i, "sub_dir_name"] / (self.t3w_file_list.loc[i, "file_path"].stem + ".sac")
+            temp_mseed_file_path = self.tmp_root_dir / self.data_dir.name / self.t3w_file_list.loc[i, "sub_dir_name"] / (self.t3w_file_list.loc[i, "file_path"].stem + ".mseed")
             
-            if force_overwrite or not temp_sac_file_path.exists():
-                temp_t3w_data.stream.write(str(temp_sac_file_path), format="SAC")
+            if force_overwrite or not temp_mseed_file_path.exists():
+                temp_t3w_data.stream.write(str(temp_mseed_file_path), format="mseed")
             
-            sac_file_list.append(temp_sac_file_path)
-            
+            mseed_file_list.append(temp_mseed_file_path)
         
-        return sac_file_list
+        return mseed_file_list
     
     def calculate_HVSR(self):
         
         # https://github.com/jpvantassel/hvsrpy
         
-        self.sac_file_list = self.export_sac()
+        self.mseed_file_list = self.export_mseed()
         
-        for sac_file in self.sac_file_list:
+        for mseed_file in self.mseed_file_list:
             
-            self._calculate_HVSR_base(sac_file)
-            
-            raise NotImplementedError("The following code is not implemented yet")
+            self._calculate_HVSR_base(mseed_file)
             
     
-    def _calculate_HVSR_base(self, sac_file):
+    def _calculate_HVSR_base(self, mseed_file):
         
         preprocessing_settings = hvsrpy.settings.HvsrPreProcessingSettings()
         preprocessing_settings.detrend = "linear"
-        preprocessing_settings.window_length_in_seconds = 100
+        preprocessing_settings.window_length_in_seconds = 40.96
         preprocessing_settings.orient_to_degrees_from_north = 0.0
         preprocessing_settings.filter_corner_frequencies_in_hz = (None, None)
         preprocessing_settings.ignore_dissimilar_time_step_warning = False
-        
-        preprocessing_settings.psummary()
         
         processing_settings = hvsrpy.settings.HvsrTraditionalProcessingSettings()
         processing_settings.window_type_and_width = ("tukey", 0.2)
@@ -499,20 +494,12 @@ class DataFormatter:
         processing_settings.method_to_combine_horizontals = "geometric_mean"
         processing_settings.handle_dissimilar_time_steps_by = "frequency_domain_resampling"
 
-        print("Processing Summary")
-        print("-"*60)
-        processing_settings.psummary()
-        
-        srecords = hvsrpy.read([[str(sac_file)]])
+        srecords = hvsrpy.read([[str(mseed_file)]])
         srecords = hvsrpy.preprocess(srecords, preprocessing_settings)
         hvsr = hvsrpy.process(srecords, processing_settings)
         
-        print("\nStatistical Summary:")
-        print("-"*20)
-        hvsrpy.summarize_hvsr_statistics(hvsr)
-        (fig, ax) = hvsrpy.plot_single_panel_hvsr_curves(hvsr,)
-        ax.get_legend().remove()
-        ax.legend(loc="center left", bbox_to_anchor=(1, 0.5))
-        plt.show()
+        (fig, ax) = hvsrpy.plot_pre_and_post_rejection(srecords,hvsr)
+        temp_figure_path = self.res_root_dir / mseed_file.parent.relative_to(self.tmp_root_dir) / (mseed_file.stem + "_HVSR.png")
+        fig.savefig(temp_figure_path, dpi=300)
             
     
