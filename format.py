@@ -7,6 +7,8 @@ import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import hvsrpy
+import gc
+from scipy.stats import gmean, gstd
 
 plt.rcParams["font.family"] = "Arial"
 plt.rcParams["mathtext.fontset"] = "dejavuserif" 
@@ -108,8 +110,8 @@ class DataFormatter:
 
     def _create_file_list(self):
 
-        self.log_file_list_path = self.res_root_dir / "log_file_list.csv"
-        self.t3w_file_list_path = self.res_root_dir / "t3w_file_list.csv"
+        self.log_file_list_path = self.res_root_dir / self.data_dir.name / "log_file_list.csv"
+        self.t3w_file_list_path = self.res_root_dir / self.data_dir.name / "t3w_file_list.csv"
 
         if self.log_file_list_path.exists():
             self.log_file_list, self.t3w_file_list, self.sub_dir_list = self._import_file_list()
@@ -342,10 +344,10 @@ class DataFormatter:
         # TODO: remove the columns which are not important
         
         temp_t3w_file_list = self.t3w_file_list.copy()
-        temp_t3w_file_list.to_csv(self.res_root_dir / "t3w_file_list.csv", index=False)
+        temp_t3w_file_list.to_csv(self.res_root_dir / self.data_dir.name / "t3w_file_list.csv", index=False)
 
         temp_log_file_list = self.log_file_list.copy()
-        temp_log_file_list.to_csv(self.res_root_dir / "log_file_list.csv", index=False)
+        temp_log_file_list.to_csv(self.res_root_dir / self.data_dir.name / "log_file_list.csv", index=False)
 
 
     def _check_data_conversion(self, ref_dir=None):
@@ -443,7 +445,7 @@ class DataFormatter:
                 
                 self.t3w_file_list.loc[i, "latitude"] = temp_log_file_data.stats["latitude"]
                 self.t3w_file_list.loc[i, "longitude"] = temp_log_file_data.stats["longitude"]
-                self.t3w_file_list.loc[i, "elevatioWn"] = temp_log_file_data.stats["altitude"]
+                self.t3w_file_list.loc[i, "elevation"] = temp_log_file_data.stats["altitude"]
                 self.t3w_file_list.loc[i, "geoid_height"] = temp_log_file_data.stats["geoid_height"]
                 self.t3w_file_list.loc[i, "num_satellites"] = temp_log_file_data.stats["num_satellites"]
                 self.t3w_file_list.loc[i, "HDOP"] = temp_log_file_data.stats["HDOP"]
@@ -484,8 +486,6 @@ class DataFormatter:
         
         for i, mseed_file in enumerate(self.mseed_file_list):
             
-            print(f"Calculating HVSR of {mseed_file.relative_to(self.tmp_root_dir)}...", end="")
-            
             temp_hvsr, temp_srecords = self._calculate_HVSR_base(mseed_file)
         
             self.hvsr_list.append(temp_hvsr)
@@ -497,7 +497,8 @@ class DataFormatter:
                 self.t3w_file_list.loc[i, "mean_curve_freq"] = temp_hvsr.mean_curve_peak()[0]
                 self.t3w_file_list.loc[i, "mean_curve_amp"] = temp_hvsr.mean_curve_peak()[1]
             
-            print("Done")
+        print("-" * 40)
+        print("HVSR calculation is done")
         
         self._export_file_list_csv()
     
@@ -554,8 +555,6 @@ class DataFormatter:
         temp_group_list["geoid_height"] = None
         temp_group_list["best_HDOP"] = None
         
-        temp_group_list["same_group_t3w_files"] = None
-        
         for i in range(len(temp_group_list)):
             temp_group_index = temp_group_list.loc[i, "group_index"]
             temp_same_group_t3w_file_list = self.t3w_file_list[self.t3w_file_list["group_index"] == temp_group_index]
@@ -574,35 +573,99 @@ class DataFormatter:
                 temp_group_list.loc[i, "geoid_height"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "geoid_height"]
                 temp_group_list.loc[i, "best_HDOP"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "HDOP"]
                 
-            temp_group_list.loc[i, "same_group_t3w_files"] = temp_same_group_t3w_file_list
+        return temp_group_list
     
     def _export_merged_HVSR(self):
         
         for i in range(len(self.group_list)):
             
             temp_group_index = self.group_list.loc[i, "group_index"]
-            temp_same_group_t3w_file_list = self.group_list.loc[i, "same_group_t3w_files"]
+            temp_same_group_t3w_file_list = self.t3w_file_list[self.t3w_file_list["group_index"] == temp_group_index]
             
             temp_fig, temp_axes = setup_figure(num_row=1, num_col=1, width=6, height=4)
             
-            for j in range(len(temp_same_group_t3w_file_list)):
+            temp_freq, temp_amp, temp_amp_geo_mean, \
+            temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std, \
+            temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak \
+            = self._calculate_merged_HVSR(temp_same_group_t3w_file_list)
+            
+            # save geomean peak frequency and amplitude to the group_list
+            self.group_list.loc[i, "mean_curve_freq"] = temp_amp_geo_mean_peak_freq
+            self.group_list.loc[i, "mean_curve_amp"] = temp_amp_geo_mean_peak
                 
-                temp_t3w_data = temp_same_group_t3w_file_list.iloc[j]["data"]
-                temp_hvsr_data = self.hvsr_list[temp_same_group_t3w_file_list.index[j]]
-                
-                temp_axes[0, 0].plot(temp_hvsr_data.frequency, temp_hvsr_data.amplitude, label=temp_t3w_data.header["start_datetime_this_file"])
+            for j in range(len(temp_amp)):
+                temp_axes[0, 0].plot(temp_freq, temp_amp[j], color="gray", alpha=0.5, linewidth=0.5)
+            
+            temp_axes[0, 0].plot(temp_freq, temp_amp_geo_mean, color="k", linewidth=1.5)
+            temp_axes[0, 0].fill_between(temp_freq, temp_amp_geo_mean_minus_std,
+                                        temp_amp_geo_mean_plus_std, color="gray", alpha=0.5)
+            temp_axes[0, 0].plot(temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak, "ro", markersize=5,
+                                 markeredgewidth=0.5, markeredgecolor="k")
             
             temp_axes[0, 0].set_xscale("log")
-            temp_axes[0, 0].set_yscale("log")
             temp_axes[0, 0].set_xlabel("Frequency (Hz)")
-            temp_axes[0, 0].set_ylabel("Amplitude")
-            temp_axes[0, 0].legend()
+            temp_axes[0, 0].set_ylabel("H/V Amplitude")
+            temp_axes[0, 0].set_xlim(0.2, 10)
+            temp_axes[0, 0].set_ylim(ymin=0)
             
-            temp_fig.savefig(self.res_root_dir / "HVSR" / f"group_{temp_group_index}.png")
+            # remove upper and right spines
+            temp_axes[0, 0].spines["top"].set_visible(False)
+            temp_axes[0, 0].spines["right"].set_visible(False)
+            
+            # change tick_label format from 10^-1, 10^0, 10^1 to 0.1, 1, 10
+            temp_axes[0, 0].xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: "{:.1f}".format(x)))
+            temp_axes[0, 0].yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: "{:.1f}".format(y)))            
+            
+            temp_fig.savefig(self.res_root_dir / self.data_dir.name / \
+                temp_same_group_t3w_file_list["file_path"].iloc[0].relative_to(self.data_dir).parent / \
+                f"group_{temp_group_index}.svg", bbox_inches="tight")
             plt.close(temp_fig)
+            plt.clf()
+            plt.cla()
+            gc.collect()
+        
+        self._export_group_list_csv()
+    
+    def _calculate_merged_HVSR(self, same_group_t3w_file_list):
+        
+        temp_amp = []
+        
+        # extract frequency and amplitude
+        for i in range(len(same_group_t3w_file_list)):
+            
+            temp_hvsr_data = self.hvsr_list[same_group_t3w_file_list.index[i]]
+            
+            # NOTE: length of temp_freq is considered to be the same among the files
+            if i == 0:
+                temp_freq = temp_hvsr_data.frequency
+            
+            for j in range(len(temp_hvsr_data.amplitude)):
+                temp_amp.append(temp_hvsr_data.amplitude[j])
+
+        temp_amp = np.array(temp_amp)
+        
+        # drop the inf and nan values
+        temp_amp = temp_amp[~np.isinf(temp_amp).any(axis=1)]
+        temp_amp = temp_amp[~np.isnan(temp_amp).any(axis=1)]
+        
+        # calculate geometric mean and +/- 1 standard deviation of the amplitude
+        temp_amp_log = np.log(temp_amp)
+        temp_amp_geo_mean = np.exp(np.mean(temp_amp_log, axis=0))
+        temp_amp_geo_mean_plus_std = np.exp(np.mean(temp_amp_log, axis=0) + np.std(temp_amp_log, axis=0))
+        temp_amp_geo_mean_minus_std = np.exp(np.mean(temp_amp_log, axis=0) - np.std(temp_amp_log, axis=0))
+        
+        # calculate peak frequency and amplitude in the mean curve
+        temp_amp_geo_mean_peak = temp_amp_geo_mean.max()
+        temp_amp_geo_mean_peak_index = np.where(temp_amp_geo_mean == temp_amp_geo_mean_peak)[0][0]
+        temp_amp_geo_mean_peak_freq = temp_freq[temp_amp_geo_mean_peak_index]
+        
+        return (temp_freq, temp_amp, temp_amp_geo_mean, 
+                temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std, 
+                temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak)
+
+        
     
     def _export_group_list_csv(self):
         
         temp_group_list = self.group_list.copy()
-        temp_group_list = temp_group_list.drop(columns=["same_group_t3w_files"])
-        self.group_list.to_csv(self.res_root_dir / "group_list.csv", index=False)
+        temp_group_list.to_csv(self.res_root_dir / self.data_dir.name / "group_list.csv", index=False)
