@@ -15,7 +15,8 @@ plt.rcParams["legend.shadow"] = True
 plt.rcParams["legend.framealpha"] = 1
 plt.rcParams["legend.edgecolor"] = "k"
 
-def setup_figure(num_row=1, num_col=1, width=5, height=4, left=0.125, right=0.9, hspace=0.2, wspace=0.2):
+def setup_figure(num_row=1, num_col=1, width=5, height=4, left=0.125, 
+                 right=0.9, hspace=0.2, wspace=0.2):
 
     fig, axes = plt.subplots(num_row, num_col, figsize=(width, height), squeeze=False)   
     fig.subplots_adjust(left=left, right=right, hspace=hspace, wspace=wspace)
@@ -23,9 +24,8 @@ def setup_figure(num_row=1, num_col=1, width=5, height=4, left=0.125, right=0.9,
 
 
 class DataFormatter:
-    def __init__(self, data_dir: Path, time_zone: str = "Japan", 
-                 keep_original_col=["group_index", "match_log_index", "latitude", 
-                                     "longitude", "elevation", "geoid_height"]):
+    def __init__(self, data_dir: Path, time_zone: str = "Japan",
+                 flag_leave_original = {"location": False}):
         """
         Parameters
         ----------
@@ -56,10 +56,7 @@ class DataFormatter:
         self.data_dir = Path(data_dir).resolve()
         self.time_zone = time_zone
 
-        self.export_col_t3w = ["file_path", "rel_file_path", "sub_dir_index", "sub_dir_name", "stem", 
-                               "group_index", "match_log_index", "latitude", "longitude", "elevation", "geoid_height"]
-        self.export_col_log = ["file_path", "rel_file_path", "sub_dir_index", "sub_dir_name", "stem"]
-        self.keep_original_col = keep_original_col
+        self.flag_leave_original = flag_leave_original
 
         print("-" * 40)
         print(f"Data directory: {self.data_dir}")
@@ -77,7 +74,8 @@ class DataFormatter:
         # self._check_integrity()
         ## check the integrity of the data
         ## sometimes the t3w files are not continuous or overlapped
-        ## while it is not possible to check whether the t3w files are continuous, but it is possible to check whether the t3w files are overlapped
+        ## while it is not possible to check whether the t3w files are continuous, 
+        ## but it is possible to check whether the t3w files are overlapped
         ## if the t3w files are overlapped, the data should not be concatenated
         
         # self._concatenate_t3w_files()
@@ -86,20 +84,12 @@ class DataFormatter:
         ##    -> done by the _check_integrity()    
         ## 2. how to store the data (again create new variables?)
         
-        # if both of ["group_index", "match_log_index"] are in keep_original_col, 
-        # the following code will not update the columns
-        if not all([col in self.keep_original_col for col in ["group_index", "match_log_index"]]):
-            self._match_files()
-    
-        if not all([col in self.keep_original_col for col in ["latitude", "longitude", "elevation", "geoid_height"]]):    
-            self._marge_log_files()
+        # TODO: add if statement to check whether the columns are in the dataframe
+        self._match_files()
+        self._marge_log_files(flag_leave_original=self.flag_leave_original["location"])
 
-
-        # self._convert_t3w_to_miniseed()
         # self._create_stationXML()
         
-        ## compute HVSR from the data with use of https://github.com/jpvantassel/hvsrpy
-    
     def _create_result_root_dir(self):
 
         self.res_root_dir = self.data_dir.parent / "res"
@@ -238,10 +228,10 @@ class DataFormatter:
     # load and store the instance of T3WHandler and LogHandler
     def _load_files(self):
         
-        self.log_file_data = self._load_files_log()
+        self._load_files_log()
         print("Log files are loaded")
         
-        self.t3w_file_data = self._load_files_t3w()
+        self._load_files_t3w()
         print("T3W files are loaded")
 
         print("-" * 40) 
@@ -347,14 +337,14 @@ class DataFormatter:
                     self.t3w_file_list.loc[i, "match_log_index"] = j
                     break
         
-    def _export_file_list(self, not_update_columns=["group_index"]):
+    def _export_file_list_csv(self, not_update_columns=["group_index"]):
+        
+        # TODO: remove the columns which are not important
         
         temp_t3w_file_list = self.t3w_file_list.copy()
-        temp_t3w_file_list = temp_t3w_file_list[self.export_col_t3w]
         temp_t3w_file_list.to_csv(self.res_root_dir / "t3w_file_list.csv", index=False)
 
         temp_log_file_list = self.log_file_list.copy()
-        temp_log_file_list = temp_log_file_list[self.export_col_log]
         temp_log_file_list.to_csv(self.res_root_dir / "log_file_list.csv", index=False)
 
 
@@ -426,21 +416,39 @@ class DataFormatter:
 
         pass
     
-    def _marge_log_files(self):
+    def _marge_log_files(self, flag_leave_original=False):
         
-        for i in range(len(self.t3w_file_list)):
+        # check whether self.t3w_file_list has the columns of latitude, longitude, elevation, 
+        # geoid_height, num_satellites, HDOP
+        
+        temp_flag_has_nessary_columns = True
+        for temp_column in ["latitude", "longitude", "elevation", 
+                            "geoid_height", "num_satellites", "HDOP"]:
+            if not temp_column in self.t3w_file_list.columns:
+                temp_flag_has_nessary_columns = False
+                break
             
-            match_log_index = self.t3w_file_list.loc[i, "match_log_index"]
-            if match_log_index == -1:
-                continue
-            temp_log_file_data = self.log_file_list.loc[match_log_index, "data"]
-            
-            self.t3w_file_list.loc[i, "latitude"] = temp_log_file_data.stats["latitude"]
-            self.t3w_file_list.loc[i, "longitude"] = temp_log_file_data.stats["longitude"]
-            self.t3w_file_list.loc[i, "elevation"] = temp_log_file_data.stats["altitude"]
-            self.t3w_file_list.loc[i, "geoid_height"] = temp_log_file_data.stats["geoid_height"]
+        if flag_leave_original and temp_flag_has_nessary_columns:
+            pass
+        else:
+            if not temp_flag_has_nessary_columns:
+                warnings.warn("All the necessary columns are not in the t3w_file_list, \
+                               so all the columns related to location is not left")
+            for i in range(len(self.t3w_file_list)):
+                
+                match_log_index = self.t3w_file_list.loc[i, "match_log_index"]
+                if match_log_index == -1:
+                    continue
+                temp_log_file_data = self.log_file_list.loc[match_log_index, "data"]
+                
+                self.t3w_file_list.loc[i, "latitude"] = temp_log_file_data.stats["latitude"]
+                self.t3w_file_list.loc[i, "longitude"] = temp_log_file_data.stats["longitude"]
+                self.t3w_file_list.loc[i, "elevatioWn"] = temp_log_file_data.stats["altitude"]
+                self.t3w_file_list.loc[i, "geoid_height"] = temp_log_file_data.stats["geoid_height"]
+                self.t3w_file_list.loc[i, "num_satellites"] = temp_log_file_data.stats["num_satellites"]
+                self.t3w_file_list.loc[i, "HDOP"] = temp_log_file_data.stats["HDOP"]
 
-        self._export_file_list()
+        self._export_file_list_csv()
     
     
     def _concatenate_t3w_files(self):
@@ -466,40 +474,135 @@ class DataFormatter:
         
         return mseed_file_list
     
-    def calculate_HVSR(self):
-        
-        # https://github.com/jpvantassel/hvsrpy
+    def calculate_HVSR(self, force_overwrite=False):
         
         self.mseed_file_list = self.export_mseed()
+        self.preproc_settings, self.proc_settings = self._create_HVSR_settings()
         
-        for mseed_file in self.mseed_file_list:
+        self.hvsr_list = []
+        self.srecords_list = []
+        
+        for i, mseed_file in enumerate(self.mseed_file_list):
             
-            self._calculate_HVSR_base(mseed_file)
+            print(f"Calculating HVSR of {mseed_file.relative_to(self.tmp_root_dir)}...", end="")
+            
+            temp_hvsr, temp_srecords = self._calculate_HVSR_base(mseed_file)
+        
+            self.hvsr_list.append(temp_hvsr)
+            self.srecords_list.append(temp_srecords)
+            
+            if np.isinf(temp_hvsr.amplitude).any() == False and \
+                temp_hvsr.mean_curve_peak() is not None and \
+                force_overwrite:
+                self.t3w_file_list.loc[i, "mean_curve_freq"] = temp_hvsr.mean_curve_peak()[0]
+                self.t3w_file_list.loc[i, "mean_curve_amp"] = temp_hvsr.mean_curve_peak()[1]
+            
+            print("Done")
+        
+        self._export_file_list_csv()
+    
+    def _create_HVSR_settings(self):
+        
+        temp_preproc_settings = hvsrpy.settings.HvsrPreProcessingSettings()
+        temp_preproc_settings.detrend = "linear"
+        temp_preproc_settings.window_length_in_seconds = 40.96
+        temp_preproc_settings.orient_to_degrees_from_north = 0.0
+        temp_preproc_settings.filter_corner_frequencies_in_hz = (None, None)
+        temp_preproc_settings.ignore_dissimilar_time_step_warning = False
+        
+        temp_proc_settings = hvsrpy.settings.HvsrTraditionalProcessingSettings()
+        temp_proc_settings.window_type_and_width = ("tukey", 0.2)
+        temp_proc_settings.smoothing=dict(operator="konno_and_ohmachi",
+                                        bandwidth=40,
+                                        center_frequencies_in_hz=np.geomspace(0.2, 50, 200))
+        temp_proc_settings.method_to_combine_horizontals = "geometric_mean"
+        temp_proc_settings.handle_dissimilar_time_steps_by = "frequency_domain_resampling"
+        
+        return (temp_preproc_settings, temp_proc_settings)
             
     
     def _calculate_HVSR_base(self, mseed_file):
         
-        preprocessing_settings = hvsrpy.settings.HvsrPreProcessingSettings()
-        preprocessing_settings.detrend = "linear"
-        preprocessing_settings.window_length_in_seconds = 40.96
-        preprocessing_settings.orient_to_degrees_from_north = 0.0
-        preprocessing_settings.filter_corner_frequencies_in_hz = (None, None)
-        preprocessing_settings.ignore_dissimilar_time_step_warning = False
+        temp_srecords = hvsrpy.read([[str(mseed_file)]])
+        temp_srecords = hvsrpy.preprocess(temp_srecords, self.preproc_settings)
+        temp_hvsr = hvsrpy.process(temp_srecords, self.proc_settings)
         
-        processing_settings = hvsrpy.settings.HvsrTraditionalProcessingSettings()
-        processing_settings.window_type_and_width = ("tukey", 0.2)
-        processing_settings.smoothing=dict(operator="konno_and_ohmachi",
-                                        bandwidth=40,
-                                        center_frequencies_in_hz=np.geomspace(0.2, 50, 200))
-        processing_settings.method_to_combine_horizontals = "geometric_mean"
-        processing_settings.handle_dissimilar_time_steps_by = "frequency_domain_resampling"
+        return (temp_hvsr, temp_srecords)
 
-        srecords = hvsrpy.read([[str(mseed_file)]])
-        srecords = hvsrpy.preprocess(srecords, preprocessing_settings)
-        hvsr = hvsrpy.process(srecords, processing_settings)
-        
-        (fig, ax) = hvsrpy.plot_pre_and_post_rejection(srecords,hvsr)
-        temp_figure_path = self.res_root_dir / mseed_file.parent.relative_to(self.tmp_root_dir) / (mseed_file.stem + "_HVSR.png")
-        fig.savefig(temp_figure_path, dpi=300)
-            
     
+    # analyze the HVSR data considering the group number
+    # same group number means the record at the same location
+    def merge_HVSR(self):
+        
+        self.group_list = self._create_group_list()
+        
+        self._export_merged_HVSR()
+        
+        self._export_group_list_csv()
+    
+    
+    def _create_group_list(self):
+        temp_group_list = pd.DataFrame(self.t3w_file_list["group_index"].unique(), 
+                                       columns=["group_index"])
+        temp_group_list["sub_dir_index"] = -1
+        temp_group_list["num_t3w_files"] = -1
+        temp_group_list["start_datetime"] = None
+        temp_group_list["end_datetime"] = None
+        temp_group_list["latitude"] = None
+        temp_group_list["longitude"] = None
+        temp_group_list["elevation"] = None
+        temp_group_list["geoid_height"] = None
+        temp_group_list["best_HDOP"] = None
+        
+        temp_group_list["same_group_t3w_files"] = None
+        
+        for i in range(len(temp_group_list)):
+            temp_group_index = temp_group_list.loc[i, "group_index"]
+            temp_same_group_t3w_file_list = self.t3w_file_list[self.t3w_file_list["group_index"] == temp_group_index]
+            
+            temp_group_list.loc[i, "sub_dir_index"] = temp_same_group_t3w_file_list["sub_dir_index"].unique()[0]
+            temp_group_list.loc[i, "num_t3w_files"] = len(temp_same_group_t3w_file_list)
+            temp_group_list.loc[i, "start_datetime"] = temp_same_group_t3w_file_list["data"].apply(lambda x: x.header["start_datetime_this_file"]).min()
+            temp_group_list.loc[i, "end_datetime"] = temp_same_group_t3w_file_list["data"].apply(lambda x: x.header["start_datetime_this_file"]).max()
+
+            temp_best_HDOP_index = temp_same_group_t3w_file_list["HDOP"].idxmin()
+
+            if temp_best_HDOP_index is not np.nan:
+                temp_group_list.loc[i, "latitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "latitude"]
+                temp_group_list.loc[i, "longitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "longitude"]
+                temp_group_list.loc[i, "elevation"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "elevation"]
+                temp_group_list.loc[i, "geoid_height"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "geoid_height"]
+                temp_group_list.loc[i, "best_HDOP"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "HDOP"]
+                
+            temp_group_list.loc[i, "same_group_t3w_files"] = temp_same_group_t3w_file_list
+    
+    def _export_merged_HVSR(self):
+        
+        for i in range(len(self.group_list)):
+            
+            temp_group_index = self.group_list.loc[i, "group_index"]
+            temp_same_group_t3w_file_list = self.group_list.loc[i, "same_group_t3w_files"]
+            
+            temp_fig, temp_axes = setup_figure(num_row=1, num_col=1, width=6, height=4)
+            
+            for j in range(len(temp_same_group_t3w_file_list)):
+                
+                temp_t3w_data = temp_same_group_t3w_file_list.iloc[j]["data"]
+                temp_hvsr_data = self.hvsr_list[temp_same_group_t3w_file_list.index[j]]
+                
+                temp_axes[0, 0].plot(temp_hvsr_data.frequency, temp_hvsr_data.amplitude, label=temp_t3w_data.header["start_datetime_this_file"])
+            
+            temp_axes[0, 0].set_xscale("log")
+            temp_axes[0, 0].set_yscale("log")
+            temp_axes[0, 0].set_xlabel("Frequency (Hz)")
+            temp_axes[0, 0].set_ylabel("Amplitude")
+            temp_axes[0, 0].legend()
+            
+            temp_fig.savefig(self.res_root_dir / "HVSR" / f"group_{temp_group_index}.png")
+            plt.close(temp_fig)
+    
+    def _export_group_list_csv(self):
+        
+        temp_group_list = self.group_list.copy()
+        temp_group_list = temp_group_list.drop(columns=["same_group_t3w_files"])
+        self.group_list.to_csv(self.res_root_dir / "group_list.csv", index=False)
