@@ -420,32 +420,21 @@ class DataFormatter:
     
     def _marge_log_files(self, flag_leave_original=False):
         
-        # check whether self.t3w_file_list has the columns of latitude, longitude, elevation, 
-        # geoid_height, num_satellites, HDOP
-        
-        temp_flag_has_nessary_columns = True
-        for temp_column in ["latitude", "longitude", "elevation", 
-                            "geoid_height", "num_satellites", "HDOP"]:
-            if not temp_column in self.t3w_file_list.columns:
-                temp_flag_has_nessary_columns = False
-                break
-            
-        if flag_leave_original and temp_flag_has_nessary_columns:
+        if flag_leave_original:
             pass
+        
         else:
-            if not temp_flag_has_nessary_columns:
-                warnings.warn("All the necessary columns are not in the t3w_file_list, \
-                               so all the columns related to location is not left")
             for i in range(len(self.t3w_file_list)):
                 
                 match_log_index = self.t3w_file_list.loc[i, "match_log_index"]
                 if match_log_index == -1:
                     continue
+                
                 temp_log_file_data = self.log_file_list.loc[match_log_index, "data"]
                 
                 self.t3w_file_list.loc[i, "latitude"] = temp_log_file_data.stats["latitude"]
                 self.t3w_file_list.loc[i, "longitude"] = temp_log_file_data.stats["longitude"]
-                self.t3w_file_list.loc[i, "elevation"] = temp_log_file_data.stats["altitude"]
+                self.t3w_file_list.loc[i, "altitude"] = temp_log_file_data.stats["altitude"]
                 self.t3w_file_list.loc[i, "geoid_height"] = temp_log_file_data.stats["geoid_height"]
                 self.t3w_file_list.loc[i, "num_satellites"] = temp_log_file_data.stats["num_satellites"]
                 self.t3w_file_list.loc[i, "HDOP"] = temp_log_file_data.stats["HDOP"]
@@ -551,7 +540,7 @@ class DataFormatter:
         temp_group_list["end_datetime"] = None
         temp_group_list["latitude"] = None
         temp_group_list["longitude"] = None
-        temp_group_list["elevation"] = None
+        temp_group_list["altitude"] = None
         temp_group_list["geoid_height"] = None
         temp_group_list["best_HDOP"] = None
         
@@ -569,7 +558,7 @@ class DataFormatter:
             if temp_best_HDOP_index is not np.nan:
                 temp_group_list.loc[i, "latitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "latitude"]
                 temp_group_list.loc[i, "longitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "longitude"]
-                temp_group_list.loc[i, "elevation"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "elevation"]
+                temp_group_list.loc[i, "altitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "altitude"]
                 temp_group_list.loc[i, "geoid_height"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "geoid_height"]
                 temp_group_list.loc[i, "best_HDOP"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "HDOP"]
                 
