@@ -8,7 +8,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import hvsrpy
 import gc
-from scipy.stats import gmean, gstd
+import plotly.graph_objects as go
+
 
 plt.rcParams["font.family"] = "Arial"
 plt.rcParams["mathtext.fontset"] = "dejavuserif" 
@@ -427,17 +428,17 @@ class DataFormatter:
             for i in range(len(self.t3w_file_list)):
                 
                 match_log_index = self.t3w_file_list.loc[i, "match_log_index"]
+                
                 if match_log_index == -1:
                     continue
                 
                 temp_log_file_data = self.log_file_list.loc[match_log_index, "data"]
                 
-                self.t3w_file_list.loc[i, "latitude"] = temp_log_file_data.stats["latitude"]
-                self.t3w_file_list.loc[i, "longitude"] = temp_log_file_data.stats["longitude"]
-                self.t3w_file_list.loc[i, "altitude"] = temp_log_file_data.stats["altitude"]
-                self.t3w_file_list.loc[i, "geoid_height"] = temp_log_file_data.stats["geoid_height"]
-                self.t3w_file_list.loc[i, "num_satellites"] = temp_log_file_data.stats["num_satellites"]
-                self.t3w_file_list.loc[i, "HDOP"] = temp_log_file_data.stats["HDOP"]
+                temp_location_columns = ["latitude", "longitude", "altitude", "geoid_height", "num_satellites", "HDOP"]
+                
+                for temp_column in temp_location_columns:
+                    if self.t3w_file_list.loc[i, temp_column] is None:
+                        self.t3w_file_list.loc[i, temp_column] = temp_log_file_data.stats[temp_column]
 
         self._export_file_list_csv()
     
@@ -522,11 +523,11 @@ class DataFormatter:
     
     # analyze the HVSR data considering the group number
     # same group number means the record at the same location
-    def merge_HVSR(self):
+    def merge_HVSR(self, export_type="svg"):
         
         self.group_list = self._create_group_list()
         
-        self._export_merged_HVSR()
+        self._export_merged_HVSR(export_type=export_type)
         
         self._export_group_list_csv()
     
@@ -564,8 +565,18 @@ class DataFormatter:
                 
         return temp_group_list
     
-    def _export_merged_HVSR(self):
+    def _export_merged_HVSR(self, export_type="svg"):
         
+        if export_type in ["svg", "png", "jpeg"]:
+            
+            self._export_merged_HVSR_image(export_type=export_type)
+        
+        elif export_type == "html":
+            
+            self._export_merged_HVSR_plotly()
+    
+    def _export_merged_HVSR_image(self, export_type="svg"):
+         
         for i in range(len(self.group_list)):
             
             temp_group_index = self.group_list.loc[i, "group_index"]
@@ -603,17 +614,92 @@ class DataFormatter:
             
             # change tick_label format from 10^-1, 10^0, 10^1 to 0.1, 1, 10
             temp_axes[0, 0].xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: "{:.1f}".format(x)))
-            temp_axes[0, 0].yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: "{:.1f}".format(y)))            
+            temp_axes[0, 0].yaxis.set_major_formatter(plt.FuncFormatter(lambda y, _: "{:.1f}".format(y)))
             
-            temp_fig.savefig(self.res_root_dir / self.data_dir.name / \
+            # set file path
+            temp_fig_path = self.res_root_dir / self.data_dir.name / \
                 temp_same_group_t3w_file_list["file_path"].iloc[0].relative_to(self.data_dir).parent / \
-                f"group_{temp_group_index}.svg", bbox_inches="tight")
+                f"group_{temp_group_index}.{export_type}"
+                           
+            temp_fig.savefig(temp_fig_path, bbox_inches="tight")
+            
             plt.close(temp_fig)
             plt.clf()
             plt.cla()
             gc.collect()
         
         self._export_group_list_csv()
+    
+    def _export_merged_HVSR_plotly(self):
+        
+        import plotly.graph_objects as go
+        
+        for i in range(len(self.group_list)):
+            
+            temp_group_index = self.group_list.loc[i, "group_index"]
+            temp_same_group_t3w_file_list = self.t3w_file_list[self.t3w_file_list["group_index"] == temp_group_index]
+            
+            temp_freq, temp_amp, temp_amp_geo_mean, \
+            temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std, \
+            temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak \
+            = self._calculate_merged_HVSR(temp_same_group_t3w_file_list)
+            
+            temp_fig = go.Figure()
+            
+            # change the figure size
+            temp_fig.update_layout(width=400, height=300)
+            
+            # add individual H/V amplitude traces without hoverinfo
+            for j in range(len(temp_amp)):
+                temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp[j], mode="lines", line_color="rgba(0, 0, 0, 0.25)", line_width=0.5, showlegend=False, hoverinfo="skip"))
+            
+            # add area between the mean curve and +/- 1 standard deviation
+            temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean_plus_std, mode="lines", line_color="gray", 
+                                          fill=None, line_width=0, hoverinfo="skip", showlegend=False))
+            temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean_minus_std, mode="lines", line_color="gray",
+                                            fill="tonexty", line_width=0, hoverinfo="skip", name="±1 Std"))
+            temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean, mode="lines", line_color="black", line_width=1.5, name="Geo Mean",
+                                          hovertemplate="Freq: %{x:.3f} Hz<br>Amp: %{y:.2f}"))
+            
+            # limit the digits of the peak frequency and amplitude in hoverinfo
+            temp_amp_geo_mean_peak_freq = "{:.2f}".format(temp_amp_geo_mean_peak_freq)
+            temp_amp_geo_mean_peak = "{:.2f}".format(temp_amp_geo_mean_peak)
+        
+            
+            # add peak frequency and amplitude
+            temp_fig.add_trace(go.Scatter(x=[temp_amp_geo_mean_peak_freq], y=[temp_amp_geo_mean_peak], mode="markers", name="Peak",
+                                          marker=dict(color="red", size=5, line=dict(color="white", width=0.5))))
+            
+            temp_fig.update_xaxes(type="log", title="Frequency (Hz)", range=[np.log10(0.2), np.log10(10)])
+            temp_fig.update_yaxes(title="H/V Amplitude", range=[0, None])
+            
+            # ymin is set to 0
+            temp_fig.update_yaxes(range=[0, None])
+            
+            # xticklabel format is set to 0.1, 1, 10
+            temp_fig.update_xaxes(tickvals=[0.2, 0.5, 1, 2, 5, 10], ticktext=["0.2", "0.5", "1", "2", "5", "10"])
+            
+            # white background
+            temp_fig.update_layout(plot_bgcolor="white")
+            
+            # disable the grid
+            temp_fig.update_xaxes(showgrid=False, showline=True, linecolor="gray")
+            temp_fig.update_yaxes(showgrid=False, showline=True, linecolor="gray")
+            
+            # show axis only on the left and bottom
+            temp_fig.update_layout(xaxis_showline=True, yaxis_showline=True)
+            temp_fig.update_layout(xaxis_ticks="outside", yaxis_ticks="outside", xaxis_tickcolor="gray", yaxis_tickcolor="gray")
+            
+            # smaller font size in legend and reduce the space between each item
+            temp_fig.update_layout(legend=dict(title=dict(text=""), font=dict(size=8), itemsizing="constant",
+                                               x=1, y=1.02, xanchor="right", yanchor="bottom", orientation="h"))
+                        
+            
+            temp_fig_path = self.res_root_dir / self.data_dir.name / \
+                temp_same_group_t3w_file_list["file_path"].iloc[0].relative_to(self.data_dir).parent / \
+                f"group_{temp_group_index}.html"
+            
+            temp_fig.write_html(str(temp_fig_path), full_html=False, include_plotlyjs='cdn')
     
     def _calculate_merged_HVSR(self, same_group_t3w_file_list):
         
