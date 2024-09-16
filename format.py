@@ -204,6 +204,15 @@ class DataFormatter:
         # reset the index
         temp_t3w_file_list = temp_t3w_file_list.reset_index(drop=True)
         temp_log_file_list = temp_log_file_list.reset_index(drop=True)
+        
+        # initialize the columns related to location
+        temp_t3w_file_list["latitude"] = None
+        temp_t3w_file_list["longitude"] = None
+        temp_t3w_file_list["altitude"] = None
+        temp_t3w_file_list["geoid_height"] = None
+        temp_t3w_file_list["num_satellites"] = None
+        temp_t3w_file_list["HDOP"] = None
+        
 
         return (temp_log_file_list, temp_t3w_file_list, temp_sub_dir_list)
 
@@ -643,6 +652,10 @@ class DataFormatter:
             temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std, \
             temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak \
             = self._calculate_merged_HVSR(temp_same_group_t3w_file_list)
+            
+            # save geomean peak frequency and amplitude to the group_list
+            self.group_list.loc[i, "mean_curve_freq"] = temp_amp_geo_mean_peak_freq
+            self.group_list.loc[i, "mean_curve_amp"] = temp_amp_geo_mean_peak
             
             temp_fig = go.Figure()
             
