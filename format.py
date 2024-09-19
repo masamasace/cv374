@@ -8,7 +8,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import hvsrpy
 import gc
-import plotly.graph_objects as go
 
 
 plt.rcParams["font.family"] = "Arial"
@@ -54,6 +53,13 @@ class DataFormatter:
             The time zone of the data. Default is "Japan".
             Please refer to the following link for the list of time zones:
             https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+        flag_leave_original : dict
+            The flag to leave the original data. 
+            If the flag is True, the original data will be left.
+            If the flag is False, the original data will be overwritten.
+            The keys of the dictionary are as follows:
+            - location : bool
+                The flag to leave the location information.
         """
 
         self.data_dir = Path(data_dir).resolve()
@@ -94,6 +100,9 @@ class DataFormatter:
         # self._create_stationXML()
         
     def _create_result_root_dir(self):
+        """
+        Create the result root directory
+        """
 
         self.res_root_dir = self.data_dir.parent / "res"
 
@@ -102,6 +111,9 @@ class DataFormatter:
     
     
     def _create_temp_root_dir(self):
+        """
+        Create the temporary root directory
+        """
 
         self.tmp_root_dir = self.data_dir.parent / "tmp"
 
@@ -330,7 +342,7 @@ class DataFormatter:
                 # otherwise, there is a/some missing files in the directory
                 if self.t3w_file_list.loc[i, "group_index"] != self.t3w_file_list.loc[i-1, "group_index"]:
                     if temp_sequnce_number != 0:
-                        warnings.warn(f"\nThere may be missing files before {self.t3w_file_list.loc[i, 'file_path']}")
+                        warnings.warn(f"There may be missing files before {self.t3w_file_list.loc[i, 'file_path']}")
                 # the opposite case is not possible
 
                 self.t3w_file_list.loc[i, "group_index"] = temp_group_index
@@ -362,23 +374,20 @@ class DataFormatter:
 
     def _check_data_conversion(self, ref_dir=None):
         """
-        check data conversion by Win32Handler
-        Win32Handler.stream is obspy.core.stream.Stream object
-        ref_dir contains the reference data converted by PWave32 software
-        file name is like 20231018001000.200.dbl.01.asc
-            the last 01 is the channel number (01, 02, 03)
-        the header of the file is like the following:
-            > Station Name        to-soku win
-            > Trigger Time        2023/10/18 00:10:00.00
-            > Delay Time(s)       0.000
-            > Last Corrected Time 2023/10/18 00:06:30
-            > Sampling Freq(Hz)   100
-            > Duration Time(s)    300.000
-            > Channel Name        CH1
-            > Unit of Data        cm/s
-            > 0.000417
-            > 0.000242
-            > ...
+        check the data conversion of the t3w files
+        ref_dir : str
+            The directory where the reference data is stored.
+            The reference data should have the following structure:
+            ref_dir
+            ├── sub_dir_1
+            │   ├── t3w_file_1_1.asc
+            │   ├── t3w_file_1_2.asc
+            │   ├── ...
+            ├── sub_dir_2
+            │   ├── t3w_file_2_1.asc
+            │   ├── t3w_file_2_2.asc
+            │   ├── ...
+        
         """
         
         temp_ref_dir = Path(ref_dir).resolve()
@@ -425,6 +434,8 @@ class DataFormatter:
         
         
     def _check_integrity(self):
+        
+        raise NotImplementedError("This method is not implemented yet")
 
         pass
     
@@ -454,10 +465,38 @@ class DataFormatter:
     
     def _concatenate_t3w_files(self):
         
+        raise NotImplementedError("This method is not implemented yet")
+        
         pass
     
-    def _export_stationXML(self):
+    def export_stationXML(self):
         
+        from obspy.core.inventory import Inventory, Network, Station, Channel, Site
+
+        raise NotImplementedError("This method is not implemented yet")
+        
+        # TODO: still under construction
+        inv = Inventory(networks=[], source="")
+        net = Network(code="XX", stations=[], description="Microt3W")
+        sta = Station(code="XX", latitude=0.0, longitude=0.0, elevation=0.0, channels=[])
+        cha = Channel(code="HHZ", location_code="", latitude=0.0, longitude=0.0, elevation=0.0, depth=0.0)
+        
+        for i in range(len(self.t3w_file_list)):
+                
+                temp_t3w_data = self.t3w_file_list.loc[i, "data"]
+                temp_t3w_header = temp_t3w_data.header
+                
+                temp_station = Station(code=temp_t3w_header["station_name"], latitude=temp_t3w_header["latitude"],
+                                    longitude=temp_t3w_header["longitude"], elevation=temp_t3w_header["altitude"],
+                                    channels=[])
+                
+                temp_channel = Channel(code=temp_t3w_header["channel_name"], location_code="",
+                                    latitude=temp_t3w_header["latitude"], longitude=temp_t3w_header["longitude"],
+                                    elevation=temp_t3w_header["altitude"], depth=0.0)
+                
+                temp_station.channels.append(temp_channel)
+                sta.channels.append(temp_channel)
+                
         pass
     
     def export_mseed(self, force_overwrite=False):
@@ -474,6 +513,38 @@ class DataFormatter:
             mseed_file_list.append(temp_mseed_file_path)
         
         return mseed_file_list
+    
+    def export_ascii(self, force_overwrite=False):
+
+        ascii_file_list = []
+
+        for i in range(len(self.t3w_file_list)):
+
+            temp_t3w_data = self.t3w_file_list.loc[i, "data"]
+            temp_csv_file_path = self.tmp_root_dir / self.data_dir.name / self.t3w_file_list.loc[i, "sub_dir_name"] / (self.t3w_file_list.loc[i, "file_path"].stem + ".ascii")
+
+            if force_overwrite or not temp_csv_file_path.exists():
+                temp_t3w_data.stream.write(str(temp_csv_file_path), format="SH_ASC")
+
+            ascii_file_list.append(temp_csv_file_path)
+        
+        return ascii_file_list
+    
+    def export_raw_csv(self, force_overwrite=False):
+        
+        raw_csv_file_list = []
+        
+        for i in range(len(self.t3w_file_list)):
+            
+            temp_t3w_data = self.t3w_file_list.loc[i, "data"]
+            temp_raw_csv_file_path = self.tmp_root_dir / self.data_dir.name / self.t3w_file_list.loc[i, "sub_dir_name"] / (self.t3w_file_list.loc[i, "file_path"].stem + ".csv")
+            
+            if force_overwrite or not temp_raw_csv_file_path.exists():
+                temp_t3w_data.export_raw_csv(dir_path=temp_raw_csv_file_path.parent)
+            
+            raw_csv_file_list.append(temp_raw_csv_file_path)
+        
+        return raw_csv_file_list
     
     def calculate_HVSR(self, force_overwrite=False):
         
@@ -639,7 +710,7 @@ class DataFormatter:
         
         self._export_group_list_csv()
     
-    def _export_merged_HVSR_plotly(self):
+    def _export_merged_HVSR_plotly(self, reduce_size=True):
         
         import plotly.graph_objects as go
         
@@ -650,8 +721,21 @@ class DataFormatter:
             
             temp_freq, temp_amp, temp_amp_geo_mean, \
             temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std, \
+            temp_amp_geo_mean_plus_2std, temp_amp_geo_mean_minus_2std, \
             temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak \
             = self._calculate_merged_HVSR(temp_same_group_t3w_file_list)
+            
+            # reduce the size of the figure
+            if reduce_size:
+                temp_freq = temp_freq.astype(np.float16)
+                temp_amp = temp_amp.astype(np.float16)
+                temp_amp_geo_mean = temp_amp_geo_mean.astype(np.float16)
+                temp_amp_geo_mean_plus_std = temp_amp_geo_mean_plus_std.astype(np.float16)
+                temp_amp_geo_mean_minus_std = temp_amp_geo_mean_minus_std.astype(np.float16)
+                temp_amp_geo_mean_plus_2std = temp_amp_geo_mean_plus_2std.astype(np.float16)
+                temp_amp_geo_mean_minus_2std = temp_amp_geo_mean_minus_2std.astype(np.float16)
+                temp_amp_geo_mean_peak_freq = temp_amp_geo_mean_peak_freq.astype(np.float16)
+                temp_amp_geo_mean_peak = temp_amp_geo_mean_peak.astype(np.float16)
             
             # save geomean peak frequency and amplitude to the group_list
             self.group_list.loc[i, "mean_curve_freq"] = temp_amp_geo_mean_peak_freq
@@ -670,9 +754,15 @@ class DataFormatter:
             temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean_plus_std, mode="lines", line_color="gray", 
                                           fill=None, line_width=0, hoverinfo="skip", showlegend=False))
             temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean_minus_std, mode="lines", line_color="gray",
-                                            fill="tonexty", line_width=0, hoverinfo="skip", name="±1 Std"))
+                                            fill="tonexty", fillcolor="rgba(255, 0, 0, 0.4)",
+                                            line_width=0, hoverinfo="skip", name="±1 Std"))
             temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean, mode="lines", line_color="black", line_width=1.5, name="Geo Mean",
                                           hovertemplate="Freq: %{x:.3f} Hz<br>Amp: %{y:.2f}"))
+            temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean_plus_2std, mode="lines", line_color="gray",
+                                            fill=None, line_width=0, hoverinfo="skip", showlegend=False))
+            temp_fig.add_trace(go.Scatter(x=temp_freq, y=temp_amp_geo_mean_minus_2std, mode="lines", line_color="gray",
+                                            fill="tonexty", fillcolor="rgba(255, 0, 0, 0.2)",
+                                            line_width=0, hoverinfo="skip", showlegend=False))
             
             # limit the digits of the peak frequency and amplitude in hoverinfo
             temp_amp_geo_mean_peak_freq = "{:.2f}".format(temp_amp_geo_mean_peak_freq)
@@ -686,8 +776,8 @@ class DataFormatter:
             temp_fig.update_xaxes(type="log", title="Frequency (Hz)", range=[np.log10(0.2), np.log10(10)])
             temp_fig.update_yaxes(title="H/V Amplitude", range=[0, None])
             
-            # ymin is set to 0
-            temp_fig.update_yaxes(range=[0, None])
+            # set yrange from 0 to 1.2 times of maximum of geom mean + 2 std
+            temp_fig.update_yaxes(range=[0, 1.2 * temp_amp_geo_mean_plus_2std.max()])
             
             # xticklabel format is set to 0.1, 1, 10
             temp_fig.update_xaxes(tickvals=[0.2, 0.5, 1, 2, 5, 10], ticktext=["0.2", "0.5", "1", "2", "5", "10"])
@@ -704,9 +794,11 @@ class DataFormatter:
             temp_fig.update_layout(xaxis_ticks="outside", yaxis_ticks="outside", xaxis_tickcolor="gray", yaxis_tickcolor="gray")
             
             # smaller font size in legend and reduce the space between each item
-            temp_fig.update_layout(legend=dict(title=dict(text=""), font=dict(size=8), itemsizing="constant",
+            temp_fig.update_layout(legend=dict(title=dict(text=""), font=dict(size=7), itemsizing="trace",
                                                x=1, y=1.02, xanchor="right", yanchor="bottom", orientation="h"))
                         
+            # change margin
+            temp_fig.update_layout(margin=dict(l=30, r=30, t=30, b=30))
             
             temp_fig_path = self.res_root_dir / self.data_dir.name / \
                 temp_same_group_t3w_file_list["file_path"].iloc[0].relative_to(self.data_dir).parent / \
@@ -736,11 +828,13 @@ class DataFormatter:
         temp_amp = temp_amp[~np.isinf(temp_amp).any(axis=1)]
         temp_amp = temp_amp[~np.isnan(temp_amp).any(axis=1)]
         
-        # calculate geometric mean and +/- 1 standard deviation of the amplitude
+        # calculate geometric mean and +/- 1 and +/- 2 standard deviation of the amplitude
         temp_amp_log = np.log(temp_amp)
         temp_amp_geo_mean = np.exp(np.mean(temp_amp_log, axis=0))
         temp_amp_geo_mean_plus_std = np.exp(np.mean(temp_amp_log, axis=0) + np.std(temp_amp_log, axis=0))
         temp_amp_geo_mean_minus_std = np.exp(np.mean(temp_amp_log, axis=0) - np.std(temp_amp_log, axis=0))
+        temp_amp_geo_mean_plus_2std = np.exp(np.mean(temp_amp_log, axis=0) + 2 * np.std(temp_amp_log, axis=0))
+        temp_amp_geo_mean_minus_2std = np.exp(np.mean(temp_amp_log, axis=0) - 2 * np.std(temp_amp_log, axis=0))
         
         # calculate peak frequency and amplitude in the mean curve
         temp_amp_geo_mean_peak = temp_amp_geo_mean.max()
@@ -748,8 +842,10 @@ class DataFormatter:
         temp_amp_geo_mean_peak_freq = temp_freq[temp_amp_geo_mean_peak_index]
         
         return (temp_freq, temp_amp, temp_amp_geo_mean, 
-                temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std, 
-                temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak)
+                temp_amp_geo_mean_plus_std, temp_amp_geo_mean_minus_std,
+                temp_amp_geo_mean_plus_2std, temp_amp_geo_mean_minus_2std,
+                temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak) 
+        
 
         
     

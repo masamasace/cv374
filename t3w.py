@@ -2,8 +2,7 @@ from pathlib import Path
 import struct
 from .win32 import Win32Handler
 import pandas as pd
-from obspy import Trace, Stream, UTCDateTime
-import datetime as dt
+import numpy as np
 
 class T3WHandler():
     def __init__(self, file_path, calib_coeff=2.048 / 2 ** 23, flag_debug=False,
@@ -27,13 +26,16 @@ class T3WHandler():
         raise ValueError("Not implemented yet")
         
         
-    def export_data_csv(self, dir_path=None, time_format="relative"):
+    def export_raw_csv(self, dir_path=None, time_format="relative"):
         
         if not dir_path:
             dir_path = self.file_path.parent
         
         # TODO: to be updated to handle obspy stream
-        temp_data = pd.DataFrame(self.stream.get_data_float())
+        temp_data = [s.data for s in self.stream]
+        temp_data = np.array(temp_data).T
+        temp_data = pd.DataFrame(temp_data * self.calib_coeff)
+        
         temp_data.columns = [0, 1, 2]
         temp_data["relative_time"] = temp_data.index * self.header["sampling_time_interval"] / 1000
         temp_data["absolute_time"] = pd.to_datetime(self.header["start_datetime_this_file"], format="%Y%m%d%H%M%S%f") \
@@ -47,8 +49,8 @@ class T3WHandler():
         elif time_format == "both":
             temp_data = temp_data[["absolute_time", "relative_time", 0, 1, 2]]
         
-        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + "_data.csv")
-        temp_data.to_csv(temp_file_path, index=False)
+        temp_file_path = Path(dir_path).resolve() / (self.file_path.stem + ".csv")
+        temp_data.to_csv(temp_file_path, index=False, float_format="%.8e")
         
         return temp_file_path
         
