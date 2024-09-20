@@ -3,11 +3,11 @@ import pandas as pd
 import datetime as dt
 from .t3w import T3WHandler
 from .log import LogHandler
-import warnings
 import numpy as np
 import matplotlib.pyplot as plt
 import hvsrpy
 import gc
+import logging as lg
 
 
 plt.rcParams["font.family"] = "Arial"
@@ -64,6 +64,7 @@ class DataFormatter:
 
         self.data_dir = Path(data_dir).resolve()
         self.time_zone = time_zone
+        self.logger = lg.getLogger(__name__)
 
         self.flag_leave_original = flag_leave_original
 
@@ -336,16 +337,20 @@ class DataFormatter:
                 if (temp_start_datetime_from_t3w - temp_t3w_file_datetime_prev - temp_recording_duration_prev).total_seconds() != 0:
                     temp_group_index += 1
 
+                self.t3w_file_list.loc[i, "group_index"] = temp_group_index
+
                 # check by using temp_sequnce_number
-                # if the group number is different from the previous one
+                # sequence number is 0 if the file is the first file of the group
+                # sequence number is 1 if the file is not the first file of the group
+                # if the group index is different from the previous one
                 # the sequence number should be 0
                 # otherwise, there is a/some missing files in the directory
+                
                 if self.t3w_file_list.loc[i, "group_index"] != self.t3w_file_list.loc[i-1, "group_index"]:
                     if temp_sequnce_number != 0:
-                        warnings.warn(f"There may be missing files before {self.t3w_file_list.loc[i, 'file_path']}")
+                        self.logger.warning(f"There may be missing files before {self.t3w_file_list.loc[i, 'rel_file_path']}")
                 # the opposite case is not possible
 
-                self.t3w_file_list.loc[i, "group_index"] = temp_group_index
             
             # set the index of the log file which is matched with the t3w file
             for j, log_file_path in enumerate(self.log_file_list["file_path"]):
@@ -361,7 +366,7 @@ class DataFormatter:
                     self.t3w_file_list.loc[i, "match_log_index"] = j
                     break
         
-    def _export_file_list_csv(self, not_update_columns=["group_index"]):
+    def _export_file_list(self):
         
         # TODO: remove the columns which are not important
         
@@ -460,7 +465,7 @@ class DataFormatter:
                     if self.t3w_file_list.loc[i, temp_column] is None:
                         self.t3w_file_list.loc[i, temp_column] = temp_log_file_data.stats[temp_column]
 
-        self._export_file_list_csv()
+        self._export_file_list()
     
     
     def _concatenate_t3w_files(self):
@@ -570,7 +575,8 @@ class DataFormatter:
         print("-" * 40)
         print("HVSR calculation is done")
         
-        self._export_file_list_csv()
+        self._export_file_list()
+        self._export_HVSR_freq_amp()
     
     def _create_HVSR_settings(self):
         
@@ -599,7 +605,22 @@ class DataFormatter:
         temp_hvsr = hvsrpy.process(temp_srecords, self.proc_settings)
         
         return (temp_hvsr, temp_srecords)
-
+    
+    # export the frequency and amplitude of the HVSR
+    def _export_HVSR_freq_amp(self):
+        
+        for i in range(len(self.hvsr_list)):
+            
+            temp_hvsr = self.hvsr_list[i]
+            temp_freq = temp_hvsr.frequency
+            temp_amp = temp_hvsr.amplitude
+            
+            temp_freq_amp = pd.DataFrame(temp_amp.T)
+            temp_freq_amp.columns = ["amp_" + str(i) for i in range(temp_amp.shape[0])]
+            temp_freq_amp["freq"] = temp_freq
+            
+            temp_freq_amp_csv_path = self.tmp_root_dir / self.data_dir.name / self.t3w_file_list.loc[i, "sub_dir_name"] / (self.t3w_file_list.loc[i, "file_path"].stem + "_hvsr.csv")
+            temp_freq_amp.to_csv(temp_freq_amp_csv_path, index=False, float_format="%.8e")
     
     # analyze the HVSR data considering the group number
     # same group number means the record at the same location
@@ -634,9 +655,9 @@ class DataFormatter:
             temp_group_list.loc[i, "start_datetime"] = temp_same_group_t3w_file_list["data"].apply(lambda x: x.header["start_datetime_this_file"]).min()
             temp_group_list.loc[i, "end_datetime"] = temp_same_group_t3w_file_list["data"].apply(lambda x: x.header["start_datetime_this_file"]).max()
 
-            temp_best_HDOP_index = temp_same_group_t3w_file_list["HDOP"].idxmin()
+            if not temp_same_group_t3w_file_list["HDOP"].isnull().all():
+                temp_best_HDOP_index = temp_same_group_t3w_file_list["HDOP"].idxmin()
 
-            if temp_best_HDOP_index is not np.nan:
                 temp_group_list.loc[i, "latitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "latitude"]
                 temp_group_list.loc[i, "longitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "longitude"]
                 temp_group_list.loc[i, "altitude"] = temp_same_group_t3w_file_list.loc[temp_best_HDOP_index, "altitude"]
@@ -725,6 +746,10 @@ class DataFormatter:
             temp_amp_geo_mean_peak_freq, temp_amp_geo_mean_peak \
             = self._calculate_merged_HVSR(temp_same_group_t3w_file_list)
             
+            # save geomean peak frequency and amplitude to the group_list
+            self.group_list.loc[i, "mean_curve_freq"] = temp_amp_geo_mean_peak_freq
+            self.group_list.loc[i, "mean_curve_amp"] = temp_amp_geo_mean_peak
+            
             # reduce the size of the figure
             if reduce_size:
                 temp_freq = temp_freq.astype(np.float16)
@@ -736,10 +761,6 @@ class DataFormatter:
                 temp_amp_geo_mean_minus_2std = temp_amp_geo_mean_minus_2std.astype(np.float16)
                 temp_amp_geo_mean_peak_freq = temp_amp_geo_mean_peak_freq.astype(np.float16)
                 temp_amp_geo_mean_peak = temp_amp_geo_mean_peak.astype(np.float16)
-            
-            # save geomean peak frequency and amplitude to the group_list
-            self.group_list.loc[i, "mean_curve_freq"] = temp_amp_geo_mean_peak_freq
-            self.group_list.loc[i, "mean_curve_amp"] = temp_amp_geo_mean_peak
             
             temp_fig = go.Figure()
             
